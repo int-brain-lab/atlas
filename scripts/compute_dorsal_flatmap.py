@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import h5py
 
 # The laplacian file tells you the distance from the cortical surface and white matter surface for every point in the isocortex mask
-# we don't need this to generate the volume
+# we don't need this to generate the volume, but we need it to generate a volume that is in percentage steps (see below)
 #path_file = 'ccfpaths/laplacian_10.nrrd'
 #paths, paths_meta = nrrd.read(path_file)
 
@@ -18,9 +18,9 @@ f1.close()
 
 # To compute a 3D volume which is APxML*2x200 we just copy over the paths data into this volume
 dorsal_view_3D = np.zeros((1360,2720,200))
-for api in np.arange(0,top_view_3D.shape[0]):
-    for mli in np.arange(0,top_view_3D.shape[1]):
-        for depth in np.arange(0,top_view_3D.shape[2]):
+for api in np.arange(0,dorsal_view_3D.shape[0]):
+    for mli in np.arange(0,dorsal_view_3D.shape[1]):
+        for depth in np.arange(0,dorsal_view_3D.shape[2]):
             dorsal_view_3D[api,mli,depth] = dorsal_paths[dorsal_lookup[api,mli],depth]
 
 nrrd.write('dorsal_flatmap_3D.nrrd',dorsal_view_3D)
