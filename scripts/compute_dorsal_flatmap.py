@@ -3,6 +3,8 @@ import nrrd
 import matplotlib.pyplot as plt
 import h5py
 
+# Download the dorsal_flatmap_paths_10.h5 file from http://download.alleninstitute.org/informatics-archive/current-release/mouse_ccf/cortical_coordinates/ccf_2017/
+
 # The laplacian file tells you the distance from the cortical surface and white matter surface for every point in the isocortex mask
 # we don't need this to generate the volume, but we need it to generate a volume that is in percentage steps (see below)
 #path_file = 'ccfpaths/laplacian_10.nrrd'
