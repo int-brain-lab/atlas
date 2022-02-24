@@ -10,6 +10,7 @@ from pathlib import Path
 from tqdm import tqdm
 import numpy as np
 from scipy.interpolate import interpn
+from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 
@@ -103,7 +104,7 @@ def compute_streamlines(U, mask, val):
 
     # Integrate the gradient field from those positions.
     print("Integrating the gradient field...")
-    paths = integrate_field(pos[::100000], 1, grad_normalized, mask)
+    paths = integrate_field(pos, 1, grad_normalized, mask)
 
     return paths
 
@@ -119,6 +120,35 @@ def discretize_paths(paths):
     # streamlines = np.dstack((i, j, k))
     # return streamlines
     return np.round(paths).astype(np.int32)
+
+
+def last_nonzero(arr, axis, invalid_val=-1):
+    # https://stackoverflow.com/a/47269413/1595060
+    mask = arr != 0
+    val = arr.shape[axis] - np.flip(mask, axis=axis).argmax(axis=axis) - 1
+    return np.where(mask.any(axis=axis), val, invalid_val)
+
+
+def path_lengths(paths):
+    streamlines = discretize_paths(paths)
+    n_paths, path_len, _ = streamlines.shape
+    d = np.abs(np.diff(streamlines, axis=1)).max(axis=2)
+    ln = last_nonzero(d, 1)
+    assert ln.shape == (n_paths,)
+    return ln
+
+
+def resample_paths(paths, num=100):
+    n_paths, path_len, _ = paths.shape
+    xp = np.linspace(0, 1, num)
+    lengths = path_lengths(paths)
+    out = np.zeros((n_paths, num, 3), dtype=np.int32)
+    for i in tqdm(range(n_paths)):
+        n = lengths[i]
+        if n >= 2:
+            lin = interp1d(np.linspace(0, 1, n), paths[i, :n, :], axis=0)
+            out[i, ...] = np.round(lin(xp)).astype(np.int32)
+    return out
 
 
 # ------------------------------------------------------------------------------------------------
@@ -143,8 +173,7 @@ def load_mask_npy(region):
 # Entry point
 # ------------------------------------------------------------------------------------------------
 
-if __name__ == '__main__':
-
+def main():
     # Load the Laplacian scalar field.
     U = np.load('U.npy')
     n, m, p = U.shape
@@ -199,3 +228,12 @@ if __name__ == '__main__':
         f.canvas.draw_idle()
 
     plt.show()
+
+
+if __name__ == '__main__':
+    # main()
+
+    paths = np.load(ROOT_PATH / 'paths.npy', mmap_mode='r')
+    resampled = resample_paths(paths)
+    np.save(ROOT_PATH / 'resampled.npy', resampled)
+    print(resampled.shape, resampled)
