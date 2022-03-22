@@ -4,26 +4,40 @@ import numpy.random as nr
 
 from datoviz import canvas, run, colormap
 
-c = canvas(show_fps=True)
-s = c.scene()
 
-panel = s.panel(controller='arcball')
-visual = panel.visual('line_strip', depth_test=True)
+paths_allen = np.load("resampled_allen.npy", mmap_mode='r')
+paths_ibl = np.load("resampled_ibl.npy", mmap_mode='r')
 
-paths = np.load("resampled.npy")
+n = 100000
+paths_allen = np.array(paths_allen[::int(paths_allen.shape[0] // n), ...][:n])
+paths_ibl = np.array(
+    paths_ibl[::int(paths_ibl.shape[0] // n), ...][:n][:, ::-1, :])
 
-k = 1
-paths = paths[::k, ...]
-n = paths.shape[0]  # number of paths
+assert paths_allen.shape[0] == n
+assert paths_ibl.shape[0] == n
 
 l = 100
 length = l * np.ones(n)  # length of each path
 
-color = np.tile(np.linspace(0, 1, l), n)
-color = colormap(color, vmin=0, vmax=1, cmap='viridis', alpha=.9)
 
-visual.data('pos', paths[:n, ...].reshape((-1, 3)))
-visual.data('length', length)
-visual.data('color', color)
+color = np.tile(np.linspace(0, 1, l), n)
+color = colormap(color, vmin=0, vmax=1, cmap='viridis', alpha=.75)
+
+c = canvas(show_fps=True)
+s = c.scene(cols=2)
+
+p0 = s.panel(col=0, controller='arcball')
+v0 = p0.visual('line_strip', depth_test=True)
+v0.data('pos', paths_allen.reshape((-1, 3)))
+v0.data('length', length)
+v0.data('color', color)
+
+p1 = s.panel(col=1, controller='arcball')
+v1 = p1.visual('line_strip', depth_test=True)
+v1.data('pos', paths_ibl.reshape((-1, 3)))
+v1.data('length', length)
+v1.data('color', color)
+
+p0.link_to(p1)
 
 run()
