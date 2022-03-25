@@ -26,18 +26,38 @@ color = colormap(color, vmin=0, vmax=1, cmap='viridis', alpha=.75)
 c = canvas(show_fps=True)
 s = c.scene(cols=2)
 
+
+# Left panel.
+# ------------
 p0 = s.panel(col=0, controller='arcball')
-v0 = p0.visual('line_strip', depth_test=True)
-v0.data('pos', paths_allen.reshape((-1, 3)))
-v0.data('length', length)
-v0.data('color', color)
 
+# v0 = p0.visual('line_strip', depth_test=True)
+# v0.data('pos', paths_allen.reshape((-1, 3)))
+# v0.data('length', length)
+# v0.data('color', color)
+
+# Points.
+v0p = p0.visual('point', depth_test=True)
+v0p.data('pos', paths_allen[:, 0, :])
+v0p.data('color', np.array([[255, 0, 0, 128]]))
+
+
+# Right panel.
+# ------------
 p1 = s.panel(col=1, controller='arcball')
-v1 = p1.visual('line_strip', depth_test=True)
-v1.data('pos', paths_ibl.reshape((-1, 3)))
-v1.data('length', length)
-v1.data('color', color)
 
+# v1 = p1.visual('line_strip', depth_test=True)
+# v1.data('pos', paths_ibl.reshape((-1, 3)))
+# v1.data('length', length)
+# v1.data('color', color)
+
+# Points.
+v1p = p1.visual('point', depth_test=True)
+v1p.data('pos', paths_ibl[:, 0, :])
+v1p.data('color', np.array([[255, 0, 0, 128]]))
+
+
+# Panel linking.
 p0.link_to(p1)
 
 run()

@@ -100,7 +100,7 @@ def load_flatmap_paths(flatmap_path, annotation_path):
 
 
 # ------------------------------------------------------------------------------------------------
-# Loading flatmap paths
+# Laplacian simulation
 # ------------------------------------------------------------------------------------------------
 
 def clear_gpu_memory():

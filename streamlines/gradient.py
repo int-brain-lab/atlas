@@ -9,6 +9,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 import numpy as np
+import pywavefront
 from scipy.interpolate import interpn
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
@@ -21,6 +22,7 @@ from matplotlib.widgets import Slider
 
 # Paths.
 ROOT_PATH = Path(__file__).parent.resolve()
+ISOCORTEX = 315
 
 
 # ------------------------------------------------------------------------------------------------
@@ -100,7 +102,10 @@ def compute_streamlines(U, mask, val):
     assert grad_normalized.ndim == 4
 
     # Compute the positions of the voxels in the surface defined by mask == val.
-    pos = compute_surface_pos(mask, val)
+    # pos = compute_surface_pos(mask, val)
+
+    # Start from the mesh vertices.
+    pos = load_mesh(ISOCORTEX)
 
     # Integrate the gradient field from those positions.
     print("Integrating the gradient field...")
@@ -170,6 +175,19 @@ def load_mask_npy(region):
 
 
 # ------------------------------------------------------------------------------------------------
+# Loading meshes
+# ------------------------------------------------------------------------------------------------
+
+def load_mesh(region_id):
+    obj_path = ROOT_PATH / f'{region_id}.obj'
+    scene = pywavefront.Wavefront(
+        obj_path, create_materials=True, collect_faces=False)
+    vertices = np.array(scene.vertices)
+    # faces = np.array(scene.mesh_list[0].faces)
+    return vertices
+
+
+# ------------------------------------------------------------------------------------------------
 # Entry point
 # ------------------------------------------------------------------------------------------------
 
@@ -198,42 +216,42 @@ def main():
     streamlines = discretize_paths(paths)
     print(streamlines.shape)
 
-    # Plotting streamlines.
-    l = 50
-    idx = 300
-    q = 20
-    qt = .97
-    i = 45
+    # # Plotting streamlines.
+    # l = 50
+    # idx = 300
+    # q = 20
+    # qt = .97
+    # i = 45
 
-    # Put the streamlines in the volume.
-    i, j, k = np.transpose(streamlines[::l], (2, 1, 0))
-    Uplot = U.copy()
-    Uplot[i, j, k] = 2
+    # # Put the streamlines in the volume.
+    # i, j, k = np.transpose(streamlines[::l], (2, 1, 0))
+    # Uplot = U.copy()
+    # Uplot[i, j, k] = 2
 
-    # Plotting code.
-    x = Uplot[..., i, :]
-    f = plt.figure(figsize=(8, 8))
-    ax = f.subplots()
-    imshow = ax.imshow(x, cmap='viridis', interpolation='none', vmin=0, vmax=1)
-    f.colorbar(imshow, ax=ax)
+    # # Plotting code.
+    # x = Uplot[..., i, :]
+    # f = plt.figure(figsize=(8, 8))
+    # ax = f.subplots()
+    # imshow = ax.imshow(x, cmap='viridis', interpolation='none', vmin=0, vmax=1)
+    # f.colorbar(imshow, ax=ax)
 
-    ax_slider = plt.axes([0.2, 0.1, 0.05, 0.8])
-    slider = Slider(
-        ax_slider, "depth", valmin=0, valmax=m, valinit=i, valstep=1, orientation='vertical')
+    # ax_slider = plt.axes([0.2, 0.1, 0.05, 0.8])
+    # slider = Slider(
+    #     ax_slider, "depth", valmin=0, valmax=m, valinit=i, valstep=1, orientation='vertical')
 
-    @slider.on_changed
-    def update(val):
-        x = Uplot[..., val - 5:val + 5, :].max(axis=1)
-        imshow.set_data(x)
-        f.canvas.draw_idle()
+    # @slider.on_changed
+    # def update(val):
+    #     x = Uplot[..., val - 5:val + 5, :].max(axis=1)
+    #     imshow.set_data(x)
+    #     f.canvas.draw_idle()
 
-    plt.show()
+    # plt.show()
 
 
 if __name__ == '__main__':
-    # main()
+    main()
 
-    paths = np.load(ROOT_PATH / 'paths.npy', mmap_mode='r')
-    resampled = resample_paths(paths)
-    np.save(ROOT_PATH / 'resampled.npy', resampled)
-    print(resampled.shape, resampled)
+    # paths = np.load(ROOT_PATH / 'paths.npy', mmap_mode='r')
+    # resampled = resample_paths(paths)
+    # np.save(ROOT_PATH / 'resampled.npy', resampled)
+    # print(resampled.shape, resampled)
