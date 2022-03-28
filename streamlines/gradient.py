@@ -5,15 +5,21 @@
 # Imports
 # ------------------------------------------------------------------------------------------------
 
+import math
 from pathlib import Path
+import urllib.request
+import shutil
 
 from tqdm import tqdm
 import numpy as np
 import pywavefront
 from scipy.interpolate import interpn
 from scipy.interpolate import interp1d
+
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
+
+from datoviz import canvas, run, colormap
 
 
 # ------------------------------------------------------------------------------------------------
@@ -23,6 +29,88 @@ from matplotlib.widgets import Slider
 # Paths.
 ROOT_PATH = Path(__file__).parent.resolve()
 ISOCORTEX = 315
+N, M, P = 1320, 800, 1140
+MAX_PATHS = 100_000
+MAX_ITER = 1000
+PATH_LEN = 100
+
+
+# ------------------------------------------------------------------------------------------------
+# Utils
+# ------------------------------------------------------------------------------------------------
+
+def last_nonzero(arr, axis, invalid_val=-1):
+    # https://stackoverflow.com/a/47269413/1595060
+    mask = arr != 0
+    val = arr.shape[axis] - np.flip(mask, axis=axis).argmax(axis=axis) - 1
+    return np.where(mask.any(axis=axis), val, invalid_val)
+
+
+def i2x(vol):
+    """From volume indices to coordinates in microns (Allen CCF)."""
+    return vol * 10
+
+
+def x2i(vol):
+    """From coordinates in microns (Allen CCF) to volume indices."""
+    return np.clip(np.round(vol / 10.0).astype(np.int32), [0, 0, 0], [N-1, M-1, P-1])
+
+
+def subset(paths, max_paths):
+    n = paths.shape[0]
+    return np.array(paths[::int(math.ceil(n / float(max_paths))), ...][:max_paths])
+
+
+# ------------------------------------------------------------------------------------------------
+# Data loading
+# ------------------------------------------------------------------------------------------------
+
+def region_dir(region):
+    region_dir = ROOT_PATH / f'regions/{region}'
+    region_dir.mkdir(exist_ok=True, parents=True)
+    return region_dir
+
+
+def filepath(region, fn):
+    return region_dir(region) / (fn + '.npy')
+
+
+def load_npy(path):
+    if not path.exists():
+        return
+    print(f"Loading `{path}`.")
+    return np.load(path, mmap_mode='r')
+
+
+def save_npy(region, name, arr):
+    path = filepath(region, name)
+    print(f"Saving `{path}`.")
+    np.save(path, arr)
+
+
+def get_mesh(region_id, region):
+    path = filepath(region, 'mesh')
+    mesh = load_npy(path)
+    if mesh is not None:
+        return mesh
+
+    # Download and save the OBJ file.
+    url = f"http://download.alleninstitute.org/informatics-archive/current-release/mouse_ccf/annotation/ccf_2017/structure_meshes/{region_id:d}.obj"
+    obj_fn = region_dir(region) / f'{region}.obj'
+    with urllib.request.urlopen(url) as response, open(obj_fn, 'wb') as f:
+        shutil.copyfileobj(response, f)
+
+    # Convert the OBJ to npy.
+    scene = pywavefront.Wavefront(
+        obj_fn, create_materials=True, collect_faces=False)
+    vertices = np.array(scene.vertices, dtype=np.float32)
+    np.save(path, vertices)
+    return vertices
+
+
+def get_mask(region):
+    path = filepath(region, 'mask')
+    return load_npy(path)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -30,6 +118,7 @@ ISOCORTEX = 315
 # ------------------------------------------------------------------------------------------------
 
 def compute_grad(U):
+    assert U.shape == (N, M, P)
     grad = np.stack(np.gradient(U), axis=3)
     gradn = np.linalg.norm(grad, axis=3)
     idx = gradn > 0
@@ -40,33 +129,40 @@ def compute_grad(U):
     return grad_normalized
 
 
-def compute_surface_pos(mask, val):
-    # Find the white matter voxels.
-    print("Getting the white matter surface...")
-    iwm, jwm, kwm = np.nonzero(mask == val)
-    # Get the positions of those voxels.
-    pos = np.c_[iwm, jwm, kwm]
-    return pos
+def get_gradient(region):
+    path = filepath(region, 'gradient')
+    gradient = load_npy(path)
+    if gradient is not None:
+        return gradient
+    U = load_npy(filepath(region, 'laplacian'))
+    if U is None:
+        # TODO: compute the laplacian with code in streamlines.py
+        raise NotImplementedError()
+    assert U.ndim == 3
+    gradient = compute_grad(U)
+    assert gradient.ndim == 4
+    np.save(path, gradient)
+    del gradient
+    return load_npy(path)
 
 
-def integrate_step(pos, step, grad_normalized, xyz):
+def integrate_step(pos, step, gradient, xyz):
     assert pos.ndim == 2
     assert pos.shape[1] == 3
-    assert grad_normalized.shape == (n, m, p, 3)
+    assert gradient.shape == (N, M, P, 3)
+    g = interpn(xyz, gradient, pos)
+    return pos - step * g
 
-    g = interpn(xyz, grad_normalized, pos)
-    return pos + step * g
 
-
-def integrate_field(pos, step, grad_normalized, mask, max_iter=100):
+def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=10):
     assert pos.ndim == 2
     n_paths = pos.shape[0]
-    assert pos.shape[1] == 3
+    assert pos.shape == (n_paths, 3)
 
     n, m, p = mask.shape
-    x = np.arange(n)
-    y = np.arange(m)
-    z = np.arange(p)
+    x = np.linspace(0, res_um * n, n)
+    y = np.linspace(0, res_um * m, m)
+    z = np.linspace(0, res_um * p, p)
     xyz = (x, y, z)
 
     out = np.zeros((n_paths, max_iter, 3), dtype=np.float32)
@@ -76,182 +172,123 @@ def integrate_field(pos, step, grad_normalized, mask, max_iter=100):
     # Which positions are still in the volume and need to be integrated?
     kept = slice(None, None, None)
 
-    for i in tqdm(range(1, max_iter)):
-        out[kept, i, :] = integrate_step(
-            out[kept, i - 1, :], step, grad_normalized, xyz)
-        pos_grid[:] = np.round(out[:, i, :]).astype(np.int32)
+    for iter in tqdm(range(1, max_iter), desc="Integrating..."):
+        prev = out[kept, iter - 1, :]
+        out[kept, iter, :] = integrate_step(prev, step, gradient, xyz)
+        pos_grid[:] = x2i(out[:, iter, :])
         i, j, k = pos_grid.T
-        kept = mask[i, j, k] != 0
-        assert kept.shape == (n_paths,)
-        if kept.sum() == 0:
-            break
+
+        # # Get the closest voxels to find the mask.
+        # kept = mask[i, j, k] != 0
+        # assert kept.shape == (n_paths,)
+        # if kept.sum() == 0:
+        #     break
 
     return out
 
 
-def compute_streamlines(U, mask, val):
-
-    # Compute the normalized gradient.
-    print("Computing the gradient...")
-    grad_path = ROOT_PATH / 'grad.npy'
-    if not grad_path.exists():
-        grad_normalized = compute_grad(U)
-        np.save(grad_path, grad_normalized)
-    else:
-        grad_normalized = np.load(grad_path, mmap_mode='r')
-    assert grad_normalized.ndim == 4
-
-    # Compute the positions of the voxels in the surface defined by mask == val.
-    # pos = compute_surface_pos(mask, val)
-
-    # Start from the mesh vertices.
-    pos = load_mesh(ISOCORTEX)
-
-    # Integrate the gradient field from those positions.
-    print("Integrating the gradient field...")
-    paths = integrate_field(pos, 1, grad_normalized, mask)
-
-    return paths
-
-
-def discretize_paths(paths):
-    # n_paths, path_len, _ = paths.shape
-    # # paths_grid = np.round(paths).astype(np.int32)
-
-    # i = paths_grid[..., 0]
-    # j = paths_grid[..., 1]
-    # k = paths_grid[..., 2]
-
-    # streamlines = np.dstack((i, j, k))
-    # return streamlines
-    return np.round(paths).astype(np.int32)
-
-
-def last_nonzero(arr, axis, invalid_val=-1):
-    # https://stackoverflow.com/a/47269413/1595060
-    mask = arr != 0
-    val = arr.shape[axis] - np.flip(mask, axis=axis).argmax(axis=axis) - 1
-    return np.where(mask.any(axis=axis), val, invalid_val)
-
-
 def path_lengths(paths):
-    streamlines = discretize_paths(paths)
+    streamlines = x2i(paths)
     n_paths, path_len, _ = streamlines.shape
-    d = np.abs(np.diff(streamlines, axis=1)).max(axis=2)
+    d = np.abs(np.diff(paths, axis=1)).max(axis=2)
     ln = last_nonzero(d, 1)
     assert ln.shape == (n_paths,)
     return ln
 
 
-def resample_paths(paths, num=100):
+def resample_paths(paths, num=PATH_LEN):
     n_paths, path_len, _ = paths.shape
     xp = np.linspace(0, 1, num)
     lengths = path_lengths(paths)
-    out = np.zeros((n_paths, num, 3), dtype=np.int32)
-    for i in tqdm(range(n_paths)):
+    out = np.zeros((n_paths, num, 3), dtype=np.float32)
+    for i in tqdm(range(n_paths), desc="Resampling..."):
         n = lengths[i]
         if n >= 2:
             lin = interp1d(np.linspace(0, 1, n), paths[i, :n, :], axis=0)
-            out[i, ...] = np.round(lin(xp)).astype(np.int32)
+            out[i, :num, :] = lin(xp)
+        else:
+            out[i, :num, :] = paths[i, 0, :]
     return out
 
 
-# ------------------------------------------------------------------------------------------------
-# Data loading
-# ------------------------------------------------------------------------------------------------
+def compute_streamlines(region, region_id):
 
-def _mask_filename(region):
-    region_dir = ROOT_PATH / f'regions/{region}'
-    region_dir.mkdir(exist_ok=True, parents=True)
-    return region_dir / f'{region}_mask.npy'
+    # Load the region mask.
+    mask = get_mask(region)
+    assert mask.ndim == 3
 
+    # Download or load the mesh (initial positions of the streamlines).
+    mesh = get_mesh(region_id, region)
+    assert mesh.ndim == 2
+    assert mesh.shape[1] == 3
 
-def load_mask_npy(region):
-    path = _mask_filename(region)
-    if not path.exists:
-        return
-    print(f"Loading {path}.")
-    return np.load(path, mmap_mode='r')
+    # Compute or load the gradient.
+    gradient = get_gradient(region)
+    assert gradient.ndim == 4
+    assert gradient.shape[3] == 3
 
+    # Integrate the gradient field from those positions.
+    # Step: 10 microns
+    paths = integrate_field(mesh, 1.0, gradient, mask, max_iter=MAX_ITER)
 
-# ------------------------------------------------------------------------------------------------
-# Loading meshes
-# ------------------------------------------------------------------------------------------------
+    # Resample the paths.
+    streamlines = resample_paths(paths, num=PATH_LEN)
 
-def load_mesh(region_id):
-    obj_path = ROOT_PATH / f'{region_id}.obj'
-    scene = pywavefront.Wavefront(
-        obj_path, create_materials=True, collect_faces=False)
-    vertices = np.array(scene.vertices)
-    # faces = np.array(scene.mesh_list[0].faces)
-    return vertices
+    # Save the streamlines.
+    save_npy(region, 'streamlines_ibl', streamlines)
 
 
 # ------------------------------------------------------------------------------------------------
-# Entry point
+# Plotting
 # ------------------------------------------------------------------------------------------------
 
-def main():
-    # Load the Laplacian scalar field.
-    U = np.load('U.npy')
-    n, m, p = U.shape
+def plot_panel(panel, paths):
+    assert paths.ndim == 3
+    n, l, _ = paths.shape
+    assert _ == 3
+    length = l * np.ones(n)  # length of each path
 
-    # Load or compute the streamlines.
-    path = Path(ROOT_PATH / 'paths.npy')
-    if not path.exists():
-        # Load the mask (computed by the Laplacian streamlines.py script)
-        mask = load_mask_npy('isocortex')
+    color = np.tile(np.linspace(0, 1, l), n)
+    color = colormap(color, vmin=0, vmax=1, cmap='viridis', alpha=.75)
 
-        # Compute the streamlines.
-        paths = compute_streamlines(U, mask, 1)  # 1=WM, 2=GM, 3=volume
+    v = panel.visual('line_strip', depth_test=True)
+    v.data('pos', paths.reshape((-1, 3)))
+    v.data('length', length)
+    v.data('color', color)
 
-        # Save the paths
-        np.save(path, paths)
-    else:
-        # Load the paths.
-        paths = np.load(path)
+    # # Points.
+    # vp = panel.visual('point', depth_test=True)
+    # vp.data('pos', paths[:, 0, :])
+    # vp.data('color', np.array([[255, 0, 0, 128]]))
 
-    # Discretize the paths.
-    print("Discretizing the streamlines...")
-    streamlines = discretize_paths(paths)
-    print(streamlines.shape)
 
-    # # Plotting streamlines.
-    # l = 50
-    # idx = 300
-    # q = 20
-    # qt = .97
-    # i = 45
+def plot_streamlines(region, max_paths=MAX_PATHS):
 
-    # # Put the streamlines in the volume.
-    # i, j, k = np.transpose(streamlines[::l], (2, 1, 0))
-    # Uplot = U.copy()
-    # Uplot[i, j, k] = 2
+    paths_allen = load_npy(filepath(region, 'streamlines_allen'))
+    paths_ibl = load_npy(filepath(region, 'streamlines_ibl'))
 
-    # # Plotting code.
-    # x = Uplot[..., i, :]
-    # f = plt.figure(figsize=(8, 8))
-    # ax = f.subplots()
-    # imshow = ax.imshow(x, cmap='viridis', interpolation='none', vmin=0, vmax=1)
-    # f.colorbar(imshow, ax=ax)
+    # Subset the paths.
+    paths_allen = subset(paths_allen, max_paths)
+    paths_ibl = subset(paths_ibl, max_paths)
 
-    # ax_slider = plt.axes([0.2, 0.1, 0.05, 0.8])
-    # slider = Slider(
-    #     ax_slider, "depth", valmin=0, valmax=m, valinit=i, valstep=1, orientation='vertical')
+    # NOTE: convert from indices to microns
+    paths_allen = (paths_allen * 10.0).astype(np.float32)
 
-    # @slider.on_changed
-    # def update(val):
-    #     x = Uplot[..., val - 5:val + 5, :].max(axis=1)
-    #     imshow.set_data(x)
-    #     f.canvas.draw_idle()
+    c = canvas(show_fps=True)
+    s = c.scene(cols=2)
+    p0 = s.panel(col=0, controller='arcball')
+    p1 = s.panel(col=1, controller='arcball')
+    p0.link_to(p1)
 
-    # plt.show()
+    plot_panel(p0, paths_allen)
+    plot_panel(p1, paths_ibl)
+
+    run()
 
 
 if __name__ == '__main__':
-    main()
+    region = 'isocortex'
+    region_id = 315
 
-    # paths = np.load(ROOT_PATH / 'paths.npy', mmap_mode='r')
-    # resampled = resample_paths(paths)
-    # np.save(ROOT_PATH / 'resampled.npy', resampled)
-    # print(resampled.shape, resampled)
+    compute_streamlines(region, region_id)
+    # plot_streamlines(region, MAX_PATHS)
