@@ -26,14 +26,14 @@ from datoviz import canvas, run, colormap
 # Constants
 # ------------------------------------------------------------------------------------------------
 
-# Paths.
 ROOT_PATH = Path(__file__).parent.resolve()
 REGION = 'isocortex'
 REGION_ID = 315
+OFFSET = +1
 PATH_LEN = 100
 N, M, P = 1320, 800, 1140
 MAX_PATHS_PLOT = 50_000
-MAX_ITER = 100
+MAX_ITER = 50
 STEP = 1000.0
 
 
@@ -50,7 +50,7 @@ def last_nonzero(arr, axis, invalid_val=-1):
 
 def i2x(vol):
     """From volume indices to coordinates in microns (Allen CCF)."""
-    return vol * 10.0 + np.array([5, 5, 5])
+    return vol * 10.0 + np.array([OFFSET, OFFSET, OFFSET])
 
 
 def x2i(vol):
@@ -60,7 +60,9 @@ def x2i(vol):
 
 def subset(paths, max_paths):
     n = paths.shape[0]
-    return np.array(paths[::int(math.ceil(float(n) / float(max_paths))), ...][:max_paths])
+    k = max(1, int(math.floor(float(n) / float(max_paths))))
+    print(k)
+    return np.array(paths[::k, ...])
 
 
 # ------------------------------------------------------------------------------------------------
@@ -116,7 +118,7 @@ def get_mask(region):
 
 
 # ------------------------------------------------------------------------------------------------
-# Integration
+# Gradient
 # ------------------------------------------------------------------------------------------------
 
 def compute_grad(U):
@@ -176,6 +178,26 @@ def get_gradient(region):
     return load_npy(path)
 
 
+# ------------------------------------------------------------------------------------------------
+# Initial points (seeds)
+# ------------------------------------------------------------------------------------------------
+
+def init_allen(region):
+    return load_npy(filepath(region, 'streamlines_allen'))[:, 0, :]
+
+
+def init_ibl(region):
+    mask = get_mask(region)
+    assert mask.ndim == 3
+    i, j, k = np.nonzero(np.isin(mask, [2]))
+    pos = i2x(np.c_[i, j, k])
+    return pos
+
+
+# ------------------------------------------------------------------------------------------------
+# Integration
+# ------------------------------------------------------------------------------------------------
+
 def integrate_step(pos, step, gradient, xyz):
     assert pos.ndim == 2
     assert pos.shape[1] == 3
@@ -192,9 +214,9 @@ def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=10, sta
     assert pos.shape == (n_paths, 3)
 
     n, m, p = mask.shape
-    x = np.linspace(0, res_um * n, n) + 5
-    y = np.linspace(0, res_um * m, m) + 5
-    z = np.linspace(0, res_um * p, p) + 5
+    x = np.linspace(0, res_um * n, n) + OFFSET
+    y = np.linspace(0, res_um * m, m) + OFFSET
+    z = np.linspace(0, res_um * p, p) + OFFSET
     xyz = (x, y, z)
 
     out = np.zeros((n_paths, max_iter, 3), dtype=np.float32)
@@ -325,6 +347,21 @@ def plot_streamlines(region, max_paths=MAX_PATHS_PLOT):
     run()
 
 
+def scatter_panel(panel, points):
+    assert points.ndim == 2
+    assert points.shape[1] == 3
+    n = points.shape[0]
+    if n == 0:
+        return
+    colors = colormap(np.linspace(0, 1, n), vmin=0,
+                      vmax=1, cmap='viridis', alpha=1)
+
+    v = panel.visual('point', depth_test=True)
+    v.data('pos', points)
+    v.data('color', colors)
+    v.data('ms', np.array([[5]]))
+
+
 def plot_point_comparison(points0, points1):
     c = canvas(show_fps=True)
     s = c.scene(cols=2)
@@ -376,36 +413,43 @@ def plot_gradient():
     run()
 
 
-def scatter_panel(panel, points):
-    assert points.ndim == 2
-    assert points.shape[1] == 3
-    n = points.shape[0]
-    if n == 0:
-        return
-    colors = colormap(np.linspace(0, 1, n), vmin=0,
-                      vmax=1, cmap='viridis', alpha=1)
+def plot_gradient_norm():
+    grad = get_gradient(REGION)
+    k = 5
+    grad = np.array(grad[::k, ::k, ::k, :], dtype=np.float32)
+    gradn = np.linalg.norm(grad, axis=3)
 
-    v = panel.visual('point', depth_test=True)
-    v.data('pos', points)
+    x = np.arange(grad.shape[0])
+    y = np.arange(grad.shape[1])
+    z = np.arange(grad.shape[2])
+    x, y, z = np.meshgrid(x, y, z)
+
+    pos = np.c_[x.ravel(), y.ravel(), z.ravel()].astype(np.float32)
+    del x, y, z
+
+    norm = gradn.transpose((1, 0, 2)).ravel()
+    idx = norm > 0
+    norm = norm[idx]
+    pos = pos[idx]
+
+    colors = colormap(norm.astype(np.double), cmap='viridis', alpha=1)
+
+    c = canvas(show_fps=True)
+    s = c.scene()
+    p = s.panel(controller='arcball')
+    v = p.visual('point', depth_test=True)
+
+    v.data('pos', pos)
     v.data('color', colors)
-    v.data('ms', np.array([[5]]))
+    v.data('ms', np.array([[3]]))
 
-
-def init_allen(region):
-    return load_npy(filepath(region, 'streamlines_allen'))[:, 0, :]
-
-
-def init_ibl(region):
-    mask = get_mask(region)
-    assert mask.ndim == 3
-    i, j, k = np.nonzero(np.isin(mask, [2]))
-    pos = i2x(np.c_[i, j, k])
-    return pos
+    run()
 
 
 if __name__ == '__main__':
-    init_points = init_ibl(REGION)[::3]
-    compute_streamlines(REGION, REGION_ID, init_points=init_points)
+    # plot_gradient_norm()
+    # init_points = init_ibl(REGION)[::17, :]
+    # compute_streamlines(REGION, REGION_ID, init_points=init_points)
     plot_streamlines(REGION, MAX_PATHS_PLOT)
 
 if 0:
