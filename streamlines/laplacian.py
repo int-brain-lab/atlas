@@ -40,7 +40,7 @@ def load_mask_nrrd(mask_nrrd, boundary_nrrd, S1_val, S2_val):
     n, m, p = boundary.shape
     assert mask.shape == (n, m, p)
 
-    # A volume with 1 = S1, 2 = S2, 3 = in volulme
+    # A volume with 1 = S1, 2 = S2, 3 = in volume
     M = np.zeros((n, m, p), dtype=np.uint8)
     M[mask != 0] = 3
     M[boundary == S1_val] = 1
