@@ -29,11 +29,13 @@ from datoviz import canvas, run, colormap
 ROOT_PATH = Path(__file__).parent.resolve()
 REGION = 'isocortex'
 REGION_ID = 315
-OFFSET = +1
-PATH_LEN = 100
+OFFSET_X = 0
+OFFSET_Y = 0
+OFFSET_Z = 0
+PATH_LEN = 200
 N, M, P = 1320, 800, 1140
 MAX_PATHS_PLOT = 50_000
-MAX_ITER = 50
+MAX_ITER = 100
 STEP = 1000.0
 
 
@@ -50,7 +52,7 @@ def last_nonzero(arr, axis, invalid_val=-1):
 
 def i2x(vol):
     """From volume indices to coordinates in microns (Allen CCF)."""
-    return vol * 10.0 + np.array([OFFSET, OFFSET, OFFSET])
+    return vol * 10.0  # + np.array([OFFSET_X, OFFSET_Y, OFFSET_Z])
 
 
 def x2i(vol):
@@ -61,7 +63,6 @@ def x2i(vol):
 def subset(paths, max_paths):
     n = paths.shape[0]
     k = max(1, int(math.floor(float(n) / float(max_paths))))
-    print(k)
     return np.array(paths[::k, ...])
 
 
@@ -214,9 +215,9 @@ def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=10, sta
     assert pos.shape == (n_paths, 3)
 
     n, m, p = mask.shape
-    x = np.linspace(0, res_um * n, n) + OFFSET
-    y = np.linspace(0, res_um * m, m) + OFFSET
-    z = np.linspace(0, res_um * p, p) + OFFSET
+    x = np.linspace(0, res_um * n, n) + OFFSET_X
+    y = np.linspace(0, res_um * m, m) + OFFSET_Y
+    z = np.linspace(0, res_um * p, p) + OFFSET_Z
     xyz = (x, y, z)
 
     out = np.zeros((n_paths, max_iter, 3), dtype=np.float32)
@@ -237,7 +238,7 @@ def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=10, sta
         pos_grid[:] = x2i(out[:, iter, :])
         i, j, k = pos_grid.T
         kept = mask[i, j, k] != 0
-        print(np.bincount(mask[i, j, k]))
+        # print(np.bincount(mask[i, j, k]))
         assert kept.shape == (n_paths,)
         n_kept = kept.sum()
         # if iter % (int(math.ceil(max_iter / 100.0))) == 0:
@@ -446,67 +447,89 @@ def plot_gradient_norm():
     run()
 
 
+def plot_gradient_norm_surface():
+    grad = get_gradient(REGION)
+    gradn = np.linalg.norm(grad, axis=3)
+    assert gradn.shape == (N, M, P)
+
+    mask = get_mask(REGION)
+    assert mask.ndim == 3
+    assert mask.shape == (N, M, P)
+
+    surface = np.isin(mask, [2])
+    assert surface.shape == (N, M, P)
+    x, y, z = np.nonzero(surface)
+    x0 = x.copy()
+    y0 = y.copy()
+    z0 = z.copy()
+    n = len(x)
+    assert x.shape == y.shape == z.shape == (n,)
+
+    pos = np.c_[x.ravel(), y.ravel(), z.ravel()].astype(np.float32)
+    assert pos.shape == (n, 3)
+
+    norm = gradn[surface]
+    assert norm.shape == (n,)
+
+    colors = colormap(norm.astype(np.double), cmap='viridis', alpha=1)
+    assert colors.shape == (n, 4)
+
+    c = canvas(show_fps=True)
+    s = c.scene()
+    p = s.panel(controller='arcball')
+    v = p.visual('point', depth_test=True)
+
+    v.data('pos', pos)
+    v.data('color', colors)
+    v.data('ms', np.array([[3]]))
+
+    u = [0, 0, 0]
+
+    @c.connect
+    def on_key_press(key, modifiers=()):
+        global u, x, y, z
+        if key == 'up' and 'shift' in modifiers:
+            u[0] += 1
+        elif key == 'down' and 'shift' in modifiers:
+            u[0] -= 1
+        elif key == 'up' and 'control' in modifiers:
+            u[1] += 1
+        elif key == 'down' and 'control' in modifiers:
+            u[1] -= 1
+        elif key == 'up' and 'alt' in modifiers:
+            u[2] += 1
+        elif key == 'down' and 'alt' in modifiers:
+            u[2] -= 1
+        elif key == 'r':
+            u[0] = u[1] = u[2] = 0
+        else:
+            return
+        print(u)
+
+        x = x0 + u[0]
+        y = y0 + u[1]
+        z = z0 + u[2]
+
+        norm = gradn[x, y, z]
+        colors = colormap(norm.astype(np.double), cmap='viridis', alpha=1)
+        v.data('color', colors)
+
+    run()
+
+
+def plot_grad_norm_hist():
+    mask = get_mask(REGION)
+    assert mask.ndim == 3
+    i, j, k = np.nonzero(np.isin(mask, [2]))
+
+    grad = get_gradient(REGION)
+    grad = np.array(grad, dtype=np.float32)
+    gradn = np.linalg.norm(grad, axis=3)
+    g = gradn[i, j, k]
+    plt.hist(g, bins=100, log=True)
+    plt.show()
+
+
 if __name__ == '__main__':
-    # plot_gradient_norm()
-    # init_points = init_ibl(REGION)[::17, :]
-    # compute_streamlines(REGION, REGION_ID, init_points=init_points)
+    compute_streamlines(REGION, REGION_ID)
     plot_streamlines(REGION, MAX_PATHS_PLOT)
-
-if 0:
-    # OLD
-
-    # fn = 'pathtest.npy'
-    # steps = 10
-    # mask = get_mask(REGION)
-
-    # if not Path(fn).exists():
-    #     gradient = get_gradient(REGION)
-
-    #     # Gray matter surface.
-    #     i, j, k = np.nonzero(np.isin(mask, [2]))
-    #     S0 = i2x(np.c_[i, j, k])
-    #     # S0 = S0[::10, :]
-
-    #     paths = integrate_field(S0, STEP, gradient, mask,
-    #                             max_iter=steps + 1, stay_in_volume=False)
-
-    #     np.save(fn, paths.astype(np.float32))
-    # else:
-    #     paths = np.load(fn, mmap_mode='r')
-
-    # c = canvas(show_fps=True)
-    # s = c.scene()
-    # p = s.panel(controller='arcball')
-    # plot_panel(p, paths[::9])
-    # run()
-
-    # pos_l = []
-    # color_l = []
-    # size_l = []
-    # for step in range(steps):
-    #     pos = paths[:, step, :]
-    #     i, j, k = x2i(pos).T
-    #     m = mask[i, j, k]
-    #     if step == 0:
-    #         m[:] = 4
-    #     s = np.full(len(pos), 1 + steps - step)
-
-    #     pos_l.append(pos)
-    #     color_l.append(m)
-    #     size_l.append(s)
-
-    # pos = np.vstack(pos_l).astype(np.float32)
-    # color = np.hstack(color_l).astype(np.double)
-    # color = colormap(color, cmap='viridis', alpha=.25,
-    #                  vmin=0, vmax=color.max())
-    # size = .5 * np.hstack(size_l).astype(np.float32)
-
-    # c = canvas(show_fps=True)
-    # s = c.scene()
-    # p = s.panel(controller='arcball')
-    # v = p.visual('point', depth_test=True)
-
-    # v.data('pos', pos)
-    # v.data('color', color)
-    # v.data('ms', size)
-    pass
