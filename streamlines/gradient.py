@@ -32,11 +32,12 @@ REGION_ID = 315
 OFFSET_X = 0
 OFFSET_Y = 0
 OFFSET_Z = 0
-PATH_LEN = 200
+RES_UM = 10
+PATH_LEN = 100
 N, M, P = 1320, 800, 1140
 MAX_PATHS_PLOT = 50_000
-MAX_ITER = 100
-STEP = 1000.0
+MAX_ITER = 200
+STEP = 10000.0
 
 
 # ------------------------------------------------------------------------------------------------
@@ -124,7 +125,7 @@ def get_mask(region):
 
 def compute_grad(U):
     assert U.shape == (N, M, P)
-    grad = np.stack(np.gradient(U), axis=3)
+    grad = np.stack(np.gradient(U, RES_UM, edge_order=1), axis=3)
     return grad
 
 
@@ -139,6 +140,9 @@ def normalize_gradient(grad):
 
 
 def clean_gradient(gradient):
+    # HACK
+    return gradient
+
     gradient = np.array(gradient, dtype=np.float32)
     gradn = np.linalg.norm(gradient, axis=3)
     assert gradn.ndim == 3
@@ -209,7 +213,7 @@ def integrate_step(pos, step, gradient, xyz):
     return pos - step * g
 
 
-def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=10, stay_in_volume=True):
+def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=RES_UM, stay_in_volume=True):
     assert pos.ndim == 2
     n_paths = pos.shape[0]
     assert pos.shape == (n_paths, 3)
@@ -282,10 +286,8 @@ def compute_streamlines(region, region_id, init_points=None):
 
     # Download or load the mesh (initial positions of the streamlines).
     if init_points is None:
-        mesh = get_mesh(region_id, region)
-        assert mesh.ndim == 2
-        assert mesh.shape[1] == 3
-        init_points = mesh
+        # init_points = get_mesh(region_id, region)
+        init_points = init_ibl(region)
     assert init_points.ndim == 2
     assert init_points.shape[1] == 3
 
@@ -295,8 +297,8 @@ def compute_streamlines(region, region_id, init_points=None):
     assert gradient.shape[3] == 3
 
     # Integrate the gradient field from those positions.
-    paths = integrate_field(init_points, STEP, gradient,
-                            mask, max_iter=MAX_ITER)
+    paths = integrate_field(
+        init_points, STEP, gradient, mask, max_iter=MAX_ITER)
 
     # Resample the paths.
     streamlines = resample_paths(paths, num=PATH_LEN)
@@ -531,5 +533,5 @@ def plot_grad_norm_hist():
 
 
 if __name__ == '__main__':
-    compute_streamlines(REGION, REGION_ID)
+    # compute_streamlines(REGION, REGION_ID)
     plot_streamlines(REGION, MAX_PATHS_PLOT)

@@ -25,8 +25,65 @@ from matplotlib.widgets import Slider
 ROOT_PATH = Path(__file__).parent.resolve()
 CCF_PATH = Path("../ccf_2017/").resolve()
 
+REGION = 'isocortex'
+ITERATIONS = 9000
+REGION_ID = 315
+N, M, P = 1320, 800, 1140
+
 # Distance from the cortical surface and white matter surface for every point in the isocortex mask:
 # paths, paths_meta = nrrd.read(CCF_PATH / 'laplacian_10.nrrd')
+
+
+# ------------------------------------------------------------------------------------------------
+# Data loading
+# ------------------------------------------------------------------------------------------------
+
+def region_dir(region):
+    region_dir = ROOT_PATH / f'regions/{region}'
+    region_dir.mkdir(exist_ok=True, parents=True)
+    return region_dir
+
+
+def filepath(region, fn):
+    return region_dir(region) / (fn + '.npy')
+
+
+def load_npy(path):
+    if not path.exists():
+        return
+    print(f"Loading `{path}`.")
+    return np.load(path, mmap_mode='r')
+
+
+def save_npy(region, name, arr):
+    path = filepath(region, name)
+    print(f"Saving `{path}`.")
+    np.save(path, arr)
+
+
+def get_mesh(region_id, region):
+    path = filepath(region, 'mesh')
+    mesh = load_npy(path)
+    if mesh is not None:
+        return mesh
+
+    # Download and save the OBJ file.
+    url = f"http://download.alleninstitute.org/informatics-archive/current-release/mouse_ccf/annotation/ccf_2017/structure_meshes/{region_id:d}.obj"
+    obj_fn = region_dir(region) / f'{region}.obj'
+    with urllib.request.urlopen(url) as response, open(obj_fn, 'wb') as f:
+        shutil.copyfileobj(response, f)
+
+    # Convert the OBJ to npy.
+    scene = pywavefront.Wavefront(
+        obj_fn, create_materials=True, collect_faces=False)
+    vertices = np.array(scene.vertices, dtype=np.float32)
+    np.save(path, vertices)
+    return vertices
+
+
+def get_mask(region):
+    path = filepath(region, 'mask')
+    return load_npy(path)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -63,7 +120,7 @@ def save_mask(region, M):
 
 def load_mask_npy(region):
     path = _mask_filename(region)
-    if not path.exists:
+    if not path.exists():
         return
     print(f"Loading {path}.")
     return np.load(path)
@@ -114,33 +171,40 @@ def clear_gpu_memory():
 def bounding_box(mask):
     idx = np.nonzero(mask != 0)
     bounds = np.array([(np.min(idx[i]), np.max(idx[i])) for i in range(3)])
-    box = tuple(slice(bounds[i, 0]-1, bounds[i, 1]+1, None) for i in range(3))
+    box = tuple(
+        slice(bounds[i, 0] - 1, bounds[i, 1] + 1, None)
+        for i in range(3))
     nc, mc, pc = bounds[:, 1] - bounds[:, 0] + 2
     return box, (nc, mc, pc)
 
 
 @jit.rawkernel()
 def laplace(M, Uin, Uout, nc, mc, pc):
-    # The 3 arrays M, Uin, Uout have size (nc+2, mc+2, pc+2)
+    # The 3 arrays M, Uin, Uout have size (nc, mc, pc)
 
     # Current voxel
     i = 1 + jit.blockIdx.x * jit.blockDim.x + jit.threadIdx.x
     j = 1 + jit.blockIdx.y * jit.blockDim.y + jit.threadIdx.y
     k = 1 + jit.blockIdx.z * jit.blockDim.z + jit.threadIdx.z
 
-    if (i <= nc) and (j <= mc) and (k <= pc):
+    if (1 <= i) and (1 <= j) and (1 <= k) and (i <= nc - 2) and (j <= mc - 2) and (k <= pc - 2):
         m = M[i, j, k]
         if m == 1:
-            Uout[i, j, k] = 0
-        elif m == 2:
             Uout[i, j, k] = 1
-        elif m == 3:
-            Uout[i, j, k] = 1./6 * (Uin[i-1, j, k]+Uin[i+1, j, k] +
-                                    Uin[i, j-1, k]+Uin[i, j+1, k]+Uin[i, j, k-1]+Uin[i, j, k+1])
+        elif m == 2:
+            Uout[i, j, k] = 2
+        else:  # if m == 3:
+            Uout[i, j, k] = 1./6 * (
+                Uin[i - 1, j, k] +
+                Uin[i + 1, j, k] +
+                Uin[i, j - 1, k] +
+                Uin[i, j + 1, k] +
+                Uin[i, j, k - 1] +
+                Uin[i, j, k + 1])
 
 
 class Runner:
-    def __init__(self, M):
+    def __init__(self, M, U=None):
         n, m, p = M.shape
         self.shape = (n, m, p)
         assert M.dtype == np.uint8
@@ -162,7 +226,14 @@ class Runner:
         size = 2 * nc * mc * pc * 4 / 1024. ** 2
         print(f"Creating two arrays of total size {size:.2f} MB on the GPU...")
         Ua = cp.zeros((nc, mc, pc), dtype=np.float32)
-        Ua[Mgpu == 1] = 1
+
+        if U is not None:
+            print(f"Starting from the existing laplacian array {U.shape}.")
+            Ua[...] = cp.asarray(U[box])
+        else:
+            Ua[Mgpu == 1] = 1
+            Ua[Mgpu == 2] = 2
+
         Ub = Ua.copy()
 
         # CUDA grid and block.
@@ -200,12 +271,6 @@ class Runner:
 
         return Uout
 
-    def save(self, U):
-        np.save('U.npy', U)
-
-    def load(self):
-        return np.load('U.npy')
-
     def clear(self):
         del self.M
         del self.Ua
@@ -213,60 +278,31 @@ class Runner:
         clear_gpu_memory()
 
 
+def compute_laplacian():
+
+    mask = get_mask(REGION)
+    assert mask.ndim == 3
+    assert mask.shape == (N, M, P)
+
+    # Load the current result.
+    U = load_npy(filepath(REGION, 'laplacian'))
+
+    # GPU Laplacian runner
+    r = Runner(mask, U=U)
+
+    # Run X iterations
+    U = r.run(ITERATIONS)
+
+    save_npy(REGION, 'laplacian', U)
+
+
 # ------------------------------------------------------------------------------------------------
 # Entry point
 # ------------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
+    compute_laplacian()
 
     # annotation_path = CCF_PATH / '../scripts/annotation_10.nrrd'
     # flatmap_path = CCF_PATH / 'dorsal_flatmap_paths_10.h5'
     # load_flatmap_paths(flatmap_path, annotation_path)
-
-    region = 'isocortex'
-    iter = 100
-
-    if not (ROOT_PATH / 'U.npy').exists():
-        # Compute the Laplacian.
-
-        # Load the boundaries of the region.
-        M = load_mask_npy(region)
-        # Is the uint8 mask doesn't exist, recreate it from the nrrd files.
-        if M is None:
-            mask_nrrd = CCF_PATH / 'isocortex_mask_10.nrrd'
-            boundary_nrrd = CCF_PATH / 'isocortex_boundary_10.nrrd'
-            WM = 3  # white matter
-            GM = 1  # gray matter
-            M = load_mask_nrrd(mask_nrrd, boundary_nrrd, WM, GM)
-            save_mask('isocortex', M)
-
-        # GPU Laplacian runner
-        r = Runner(M)
-
-        # Run X iterations
-        U = r.run(iter)
-
-        # Save the result in U.npy
-        r.save(U)
-
-    U = np.load(ROOT_PATH / 'U.npy', mmap_mode='r')
-    n, m, p = U.shape
-
-    i = 45
-    x = U[..., i, :]
-    f = plt.figure(figsize=(8, 8))
-    ax = f.subplots()
-    imshow = ax.imshow(x, cmap='viridis', interpolation='none', vmin=0, vmax=1)
-    f.colorbar(imshow, ax=ax)
-
-    ax_slider = plt.axes([0.2, 0.1, 0.05, 0.8])
-    slider = Slider(
-        ax_slider, "depth", valmin=0, valmax=m, valinit=i, valstep=1, orientation='vertical')
-
-    @slider.on_changed
-    def update(val):
-        x = U[..., val, :]
-        imshow.set_data(x)
-        f.canvas.draw_idle()
-
-    plt.show()
