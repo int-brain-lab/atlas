@@ -26,12 +26,16 @@ ROOT_PATH = Path(__file__).parent.resolve()
 CCF_PATH = Path("../ccf_2017/").resolve()
 
 REGION = 'isocortex'
-ITERATIONS = 9000
+ITERATIONS = 100
 REGION_ID = 315
 N, M, P = 1320, 800, 1140
 
-# Distance from the cortical surface and white matter surface for every point in the isocortex mask:
-# paths, paths_meta = nrrd.read(CCF_PATH / 'laplacian_10.nrrd')
+# Values used in the nrrd mask
+V_OUTSIDE = 0
+V_S1 = 1
+V_VOLUME = 2
+V_S2 = 3
+V_Si = 4
 
 
 # ------------------------------------------------------------------------------------------------
@@ -55,8 +59,8 @@ def load_npy(path):
     return np.load(path, mmap_mode='r')
 
 
-def save_npy(region, name, arr):
-    path = filepath(region, name)
+def save_npy(path, arr):
+    # path = filepath(region, name)
     print(f"Saving `{path}`.")
     np.save(path, arr)
 
@@ -81,49 +85,35 @@ def get_mesh(region_id, region):
     return vertices
 
 
-def get_mask(region):
-    path = filepath(region, 'mask')
-    return load_npy(path)
-
-
 # ------------------------------------------------------------------------------------------------
 # Loading volume mask
 # ------------------------------------------------------------------------------------------------
 
-def load_mask_nrrd(mask_nrrd, boundary_nrrd, S1_val, S2_val):
+def load_mask_nrrd(mask_nrrd, boundary_nrrd):
     mask, mask_meta = nrrd.read(mask_nrrd)
     boundary, boundary_meta = nrrd.read(boundary_nrrd)
 
     n, m, p = boundary.shape
     assert mask.shape == (n, m, p)
 
-    # A volume with 1 = S1, 2 = S2, 3 = in volume
-    M = np.zeros((n, m, p), dtype=np.uint8)
-    M[mask != 0] = 3
-    M[boundary == S1_val] = 1
-    M[boundary == S2_val] = 2
+    mask_ibl = mask.copy()
+    mask_ibl = mask_ibl.astype(np.uint8)
+    idx = boundary != 0
+    mask_ibl[idx] = boundary[idx]
 
-    return M
-
-
-def _mask_filename(region):
-    region_dir = ROOT_PATH / f'regions/{region}'
-    region_dir.mkdir(exist_ok=True, parents=True)
-    return region_dir / f'{region}_mask.npy'
+    return mask_ibl
 
 
-def save_mask(region, M):
-    path = _mask_filename(region)
-    print(f"Saving {path}.")
-    np.save(path, M)
-
-
-def load_mask_npy(region):
-    path = _mask_filename(region)
-    if not path.exists():
-        return
-    print(f"Loading {path}.")
-    return np.load(path)
+def get_mask(region):
+    path = filepath(region, 'mask')
+    if path.exists():
+        return load_npy(path)
+    print(f"Computing mask from the original nrrd files...")
+    mask_nrrd = ROOT_PATH / '../ccf_2017/isocortex_mask_10.nrrd'
+    boundary_nrrd = ROOT_PATH / '../ccf_2017/isocortex_boundary_10.nrrd'
+    mask = load_mask_nrrd(mask_nrrd, boundary_nrrd)
+    save_npy(path, mask)
+    return load_npy(path)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -179,7 +169,7 @@ def bounding_box(mask):
 
 
 @jit.rawkernel()
-def laplace(M, Uin, Uout, nc, mc, pc):
+def laplace(Uin, Uout, M, nc, mc, pc):
     # The 3 arrays M, Uin, Uout have size (nc, mc, pc)
 
     # Current voxel
@@ -189,11 +179,7 @@ def laplace(M, Uin, Uout, nc, mc, pc):
 
     if (1 <= i) and (1 <= j) and (1 <= k) and (i <= nc - 2) and (j <= mc - 2) and (k <= pc - 2):
         m = M[i, j, k]
-        if m == 1:
-            Uout[i, j, k] = 1
-        elif m == 2:
-            Uout[i, j, k] = 2
-        else:  # if m == 3:
+        if m == V_VOLUME:
             Uout[i, j, k] = 1./6 * (
                 Uin[i - 1, j, k] +
                 Uin[i + 1, j, k] +
@@ -254,8 +240,8 @@ class Runner:
         # ping-pong between the 2 arrays to avoid edge-effects while computing
         # the Laplacian in parallel on the GPU.
         # NOTE: each Python iteration here is actually made of 2 algorithm iterations
-        laplace[self.grid, self.block](self.M, self.Ua, self.Ub, *self.args)
-        laplace[self.grid, self.block](self.M, self.Ub, self.Ua, *self.args)
+        laplace[self.grid, self.block](self.Ua, self.Ub, self.M, *self.args)
+        laplace[self.grid, self.block](self.Ub, self.Ua, self.M, *self.args)
 
     def run(self, iterations):
         assert iterations > 0
@@ -293,7 +279,7 @@ def compute_laplacian():
     # Run X iterations
     U = r.run(ITERATIONS)
 
-    save_npy(REGION, 'laplacian', U)
+    save_npy(filepath(REGION, 'laplacian'), U)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -301,8 +287,9 @@ def compute_laplacian():
 # ------------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    compute_laplacian()
 
-    # annotation_path = CCF_PATH / '../scripts/annotation_10.nrrd'
-    # flatmap_path = CCF_PATH / 'dorsal_flatmap_paths_10.h5'
-    # load_flatmap_paths(flatmap_path, annotation_path)
+    compute_laplacian()
+    U = load_npy(filepath(REGION, 'laplacian'))
+
+    plt.imshow(U[500, :, :], interpolation='none', origin='lower')
+    plt.show()
