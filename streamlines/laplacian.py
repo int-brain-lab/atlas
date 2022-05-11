@@ -39,7 +39,7 @@ V_Si = 4
 
 
 # ------------------------------------------------------------------------------------------------
-# Data loading
+# Generic data loading functions
 # ------------------------------------------------------------------------------------------------
 
 def region_dir(region):
@@ -61,9 +61,13 @@ def load_npy(path):
 
 def save_npy(path, arr):
     # path = filepath(region, name)
-    print(f"Saving `{path}`.")
+    print(f"Saving `{path}` ({arr.shape}, {arr.dtype}).")
     np.save(path, arr)
 
+
+# ------------------------------------------------------------------------------------------------
+# Old data loading functions
+# ------------------------------------------------------------------------------------------------
 
 def get_mesh(region_id, region):
     path = filepath(region, 'mesh')
@@ -85,8 +89,34 @@ def get_mesh(region_id, region):
     return vertices
 
 
+def load_flatmap_paths(flatmap_path, annotation_path):
+    with h5py.File(flatmap_path, 'r+') as f:
+        dorsal_paths = f['paths'][:]
+        dorsal_lookup = f['view lookup'][:]
+
+    n_lines, max_length = dorsal_paths.shape
+
+    # Dorsal lookup:
+    ap, ml = dorsal_lookup.shape  # every item is an index
+
+    idx = (dorsal_lookup != 0)
+    # All unique indices appearing in dorsal_paths:
+    ids = dorsal_lookup[idx]
+
+    # The (ap, ml) pair for each unique index:
+    apml = np.c_[np.nonzero(idx)]
+
+    i = 10000
+    dpath = dorsal_paths[i]
+    dpath = dpath[dpath != 0]
+    ccf10, meta = nrrd.read(annotation_path)
+    line = np.c_[np.unravel_index(dpath, ccf10.shape)]
+
+    return line
+
+
 # ------------------------------------------------------------------------------------------------
-# Loading volume mask
+# Mask
 # ------------------------------------------------------------------------------------------------
 
 def load_mask_nrrd(mask_nrrd, boundary_nrrd):
@@ -117,33 +147,47 @@ def get_mask(region):
 
 
 # ------------------------------------------------------------------------------------------------
-# Loading flatmap paths
+# Normal
 # ------------------------------------------------------------------------------------------------
 
-def load_flatmap_paths(flatmap_path, annotation_path):
-    with h5py.File(flatmap_path, 'r+') as f:
-        dorsal_paths = f['paths'][:]
-        dorsal_lookup = f['view lookup'][:]
+def compute_normal(mask):
+    i, j, k = np.nonzero(np.isin(mask, (V_S1, V_S2, V_Si)))
+    vi0 = (mask[i-1,j,k] == V_VOLUME).astype(np.int8)
+    vi1 = (mask[i+1,j,k] == V_VOLUME).astype(np.int8)
+    vj0 = (mask[i,j-1,k] == V_VOLUME).astype(np.int8)
+    vj1 = (mask[i,j+1,k] == V_VOLUME).astype(np.int8)
+    vk0 = (mask[i,j,k-1] == V_VOLUME).astype(np.int8)
+    vk1 = (mask[i,j,k+1] == V_VOLUME).astype(np.int8)
+    count = vi0 + vi1 + vj0 + vj1 + vk0 + vk1  # (n,)
+    pos = np.c_[i,j,k]
+    normal = (
+        np.c_[i-1,j,k] * vi0[:, np.newaxis] +
+        np.c_[i+1,j,k] * vi1[:, np.newaxis] +
+        np.c_[i,j-1,k] * vj0[:, np.newaxis] +
+        np.c_[i,j+1,k] * vj1[:, np.newaxis] +
+        np.c_[i,j,k-1] * vk0[:, np.newaxis] +
+        np.c_[i,j,k+1] * vk1[:, np.newaxis] -
+        count[:, np.newaxis] * pos)
 
-    n_lines, max_length = dorsal_paths.shape
+    Ni = np.zeros((N, M, P), dtype=np.int8)
+    Nj = np.zeros((N, M, P), dtype=np.int8)
+    Nk = np.zeros((N, M, P), dtype=np.int8)
 
-    # Dorsal lookup:
-    ap, ml = dorsal_lookup.shape  # every item is an index
+    Ni[i, j, k] = normal[:, 0]
+    Nj[i, j, k] = normal[:, 1]
+    Nk[i, j, k] = normal[:, 2]
 
-    idx = (dorsal_lookup != 0)
-    # All unique indices appearing in dorsal_paths:
-    ids = dorsal_lookup[idx]
+    return np.stack((Ni, Nj, Nk), axis=-1)
 
-    # The (ap, ml) pair for each unique index:
-    apml = np.c_[np.nonzero(idx)]
 
-    i = 10000
-    dpath = dorsal_paths[i]
-    dpath = dpath[dpath != 0]
-    ccf10, meta = nrrd.read(annotation_path)
-    line = np.c_[np.unravel_index(dpath, ccf10.shape)]
-
-    return line
+def get_normal(region):
+    path = filepath(region, 'normal')
+    if path.exists():
+        return load_npy(path)
+    print(f"Computing surface normal...")
+    normal = compute_normal(get_mask(region))
+    save_npy(path, normal)
+    return load_npy(path)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -287,9 +331,10 @@ def compute_laplacian():
 # ------------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
+    normal = get_normal(REGION)
 
-    compute_laplacian()
-    U = load_npy(filepath(REGION, 'laplacian'))
+    # compute_laplacian()
+    # U = load_npy(filepath(REGION, 'laplacian'))
 
-    plt.imshow(U[500, :, :], interpolation='none', origin='lower')
-    plt.show()
+    # plt.imshow(normal[500, :, :], interpolation='none', origin='lower')
+    # plt.show()
