@@ -14,6 +14,8 @@ import cupy as cp
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm, Normalize
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.widgets import Slider
 
 
@@ -244,11 +246,20 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
 
     if (1 <= i) and (1 <= j) and (1 <= k) and (i <= nc - 2) and (j <= mc - 2) and (k <= pc - 2):
         m = M[i, j, k]
-        if m  == V_S1 or m == V_S2 or m == V_Si:
+        # Direction of streamlines: S1 (val=1) ==> S2 (val=3)
+        if m  == V_S1 or m == V_S2 or m == V_Si: # NOTE: remove the "m == V_Si" part ??
             ni = Ni[i, j, k]
             nj = Nj[i, j, k]
             nk = Nk[i, j, k]
-            Uout[i, j, k] = (Uout[i+ni,j,k] + Uout[i,j+nj,k] + Uout[i,j,k+nk] - 1) / 3.0
+            # Reverse the gradient for one of the surfaces
+            if m == V_S2 or m == V_Si:
+                ni, nj, nk = -ni, -nj, -nk
+
+            Uout[i, j, k] = (
+                Uout[i+ni,j,k] +
+                Uout[i,j+nj,k] +
+                Uout[i,j,k+nk] +
+                1) / 3.0  # NOTE: or -1??
 
 
 class Runner:
@@ -289,8 +300,8 @@ class Runner:
             print(f"Starting from the existing laplacian array {U.shape}.")
             Ua[...] = cp.asarray(U[box])
         else:
-            Ua[Mgpu == 1] = 1
-            Ua[Mgpu == 2] = 2
+            # Initial values: the same as the mask.
+            Ua[...] = Mgpu
 
         Ub = Ua.copy()
 
@@ -322,7 +333,6 @@ class Runner:
         vonneumann[self.grid, self.block](self.Ua, self.M, self.Ni, self.Nj, self.Nk, *self.args)
 
     def run(self, iterations):
-        assert iterations > 0
         for i in tqdm(range(iterations)):
             self.iter()
             if i % 10 == 0:
@@ -350,6 +360,7 @@ def compute_laplacian():
     mask = get_mask(REGION)
     assert mask.ndim == 3
     assert mask.shape == (N, M, P)
+    # print(np.bincount(mask.ravel()))
 
     normal = get_normal(REGION)
     assert normal.ndim == 4
@@ -372,10 +383,40 @@ def compute_laplacian():
 # ------------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    # normal = get_normal(REGION)
-
-    # compute_laplacian()
+    compute_laplacian()
     U = load_npy(filepath(REGION, 'laplacian'))
 
-    plt.imshow(U[500, :, :], interpolation='none', origin='lower', vmin=-20, vmax=+20)
+    i0 = 500
+    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+
+    # Colormap scaling.
+    # Umin, Umax = U.min(), U.max()
+    q = .001
+    Umin = np.quantile(U.ravel(), q)
+    Umax = np.quantile(U.ravel(), 1-q)
+    norm = Normalize(vmin=Umin, vmax=Umax)
+
+    ims = ax.imshow(U[i0, :, :], interpolation='none', origin='lower', norm=norm)
+
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size='5%', pad=0.05)
+    fig.colorbar(ims, cax=cax, orientation='vertical')
+
+    axs = plt.axes([0.25, 0.1, 0.65, 0.03])
+    slider = Slider(
+        ax=axs,
+        label="i",
+        valmin=0,
+        valstep=1,
+        valmax=N-1,
+        valinit=i0,
+        orientation="horizontal"
+    )
+
+    @slider.on_changed
+    def update(i):
+        i = int(i)
+        ims.set_data(U[i, :, :])
+        fig.canvas.draw_idle()
+
     plt.show()
