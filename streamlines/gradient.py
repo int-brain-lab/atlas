@@ -5,19 +5,10 @@
 # Imports
 # ------------------------------------------------------------------------------------------------
 
-import math
-from pathlib import Path
-import urllib.request
-import shutil
+from common import *
 
-from tqdm import tqdm
-import numpy as np
-import pywavefront
 from scipy.interpolate import interpn
 from scipy.interpolate import interp1d
-
-import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider
 
 from datoviz import canvas, run, colormap
 
@@ -26,18 +17,18 @@ from datoviz import canvas, run, colormap
 # Constants
 # ------------------------------------------------------------------------------------------------
 
-ROOT_PATH = Path(__file__).parent.resolve()
 REGION = 'isocortex'
 REGION_ID = 315
+N, M, P = 1320, 800, 1140
 OFFSET_X = 0
 OFFSET_Y = 0
 OFFSET_Z = 0
 RES_UM = 10
 PATH_LEN = 100
-N, M, P = 1320, 800, 1140
 MAX_PATHS_PLOT = 50_000
-MAX_ITER = 200
-STEP = 10000.0
+MAX_POINTS = 20000
+MAX_ITER = 2
+STEP = 2000.0
 
 
 # ------------------------------------------------------------------------------------------------
@@ -65,58 +56,6 @@ def subset(paths, max_paths):
     n = paths.shape[0]
     k = max(1, int(math.floor(float(n) / float(max_paths))))
     return np.array(paths[::k, ...])
-
-
-# ------------------------------------------------------------------------------------------------
-# Data loading
-# ------------------------------------------------------------------------------------------------
-
-def region_dir(region):
-    region_dir = ROOT_PATH / f'regions/{region}'
-    region_dir.mkdir(exist_ok=True, parents=True)
-    return region_dir
-
-
-def filepath(region, fn):
-    return region_dir(region) / (fn + '.npy')
-
-
-def load_npy(path):
-    if not path.exists():
-        return
-    print(f"Loading `{path}`.")
-    return np.load(path, mmap_mode='r')
-
-
-def save_npy(region, name, arr):
-    path = filepath(region, name)
-    print(f"Saving `{path}`.")
-    np.save(path, arr)
-
-
-def get_mesh(region_id, region):
-    path = filepath(region, 'mesh')
-    mesh = load_npy(path)
-    if mesh is not None:
-        return mesh
-
-    # Download and save the OBJ file.
-    url = f"http://download.alleninstitute.org/informatics-archive/current-release/mouse_ccf/annotation/ccf_2017/structure_meshes/{region_id:d}.obj"
-    obj_fn = region_dir(region) / f'{region}.obj'
-    with urllib.request.urlopen(url) as response, open(obj_fn, 'wb') as f:
-        shutil.copyfileobj(response, f)
-
-    # Convert the OBJ to npy.
-    scene = pywavefront.Wavefront(
-        obj_fn, create_materials=True, collect_faces=False)
-    vertices = np.array(scene.vertices, dtype=np.float32)
-    np.save(path, vertices)
-    return vertices
-
-
-def get_mask(region):
-    path = filepath(region, 'mask')
-    return load_npy(path)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -153,17 +92,17 @@ def clean_gradient(gradient):
 
 
 def get_gradient(region):
-    path = filepath(region, 'gradient_clean')
-    gradient = load_npy(path)
-    if gradient is not None:
-        return gradient
-    # gradient_clean does not exist, but perhaps gradient exists
+    # path = filepath(region, 'gradient_clean')
+    # gradient = load_npy(path)
+    # if gradient is not None:
+    #     return gradient
+    # # gradient_clean does not exist, but perhaps gradient exists
     path = filepath(region, 'gradient')
     gradient = load_npy(path)
     if gradient is not None:
-        # if it exists, clean it and save it and return it
-        gradient = clean_gradient(gradient)
-        save_npy(region, 'gradient_clean', gradient)
+        # # if it exists, clean it and save it and return it
+        # gradient = clean_gradient(gradient)
+        # save_npy(region, 'gradient_clean', gradient)
         return gradient
     U = load_npy(filepath(region, 'laplacian'))
     if U is None:
@@ -173,12 +112,12 @@ def get_gradient(region):
     gradient = compute_grad(U)
     assert gradient.ndim == 4
     # save the gradient
-    save_npy(region, 'gradient', gradient)
-    # clean it
-    gradient = clean_gradient(gradient)
-    # save it
-    save_npy(region, 'gradient_clean', gradient)
-    path = filepath(region, 'gradient_clean')
+    save_npy(filepath(region, 'gradient'), gradient)
+    # # clean it
+    # # gradient = clean_gradient(gradient)
+    # # save it
+    # save_npy(region, 'gradient_clean', gradient)
+    # path = filepath(region, 'gradient_clean')
     del gradient
     return load_npy(path)
 
@@ -194,7 +133,7 @@ def init_allen(region):
 def init_ibl(region):
     mask = get_mask(region)
     assert mask.ndim == 3
-    i, j, k = np.nonzero(np.isin(mask, [2]))
+    i, j, k = np.nonzero(np.isin(mask, [V_S1, V_Si]))
     pos = i2x(np.c_[i, j, k])
     return pos
 
@@ -213,7 +152,7 @@ def integrate_step(pos, step, gradient, xyz):
     return pos - step * g
 
 
-def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=RES_UM, stay_in_volume=True):
+def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=RES_UM, stay_in_volume=False):
     assert pos.ndim == 2
     n_paths = pos.shape[0]
     assert pos.shape == (n_paths, 3)
@@ -290,6 +229,9 @@ def compute_streamlines(region, region_id, init_points=None):
         init_points = init_ibl(region)
     assert init_points.ndim == 2
     assert init_points.shape[1] == 3
+    n = len(init_points)
+    init_points = subset(init_points, MAX_POINTS)
+    print(f"Starting computing {len(init_points)} (out of {n}) streamlines...")
 
     # Compute or load the gradient.
     gradient = get_gradient(region)
@@ -304,7 +246,7 @@ def compute_streamlines(region, region_id, init_points=None):
     streamlines = resample_paths(paths, num=PATH_LEN)
 
     # Save the streamlines.
-    save_npy(region, 'streamlines_ibl', streamlines)
+    save_npy(filepath(region, 'streamlines_ibl'), streamlines)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -320,9 +262,14 @@ def plot_panel(panel, paths):
     color = np.tile(np.linspace(0, 1, l), n)
     color = colormap(color, vmin=0, vmax=1, cmap='viridis', alpha=1)
 
-    v = panel.visual('line_strip', depth_test=True)
-    v.data('pos', paths.reshape((-1, 3)))
-    v.data('length', length)
+    # v = panel.visual('line_strip', depth_test=True)
+    # v.data('pos', paths.reshape((-1, 3)))
+    # v.data('length', length)
+    # v.data('color', color)
+
+    v = panel.visual('point', depth_test=True)
+    v.data('pos', paths[:, 0, :].reshape((-1, 3)).astype(np.float32))
+    color = colormap(np.arange(n, dtype=np.double), vmin=0, vmax=1, cmap='viridis', alpha=1)
     v.data('color', color)
 
 
@@ -458,7 +405,7 @@ def plot_gradient_norm_surface():
     assert mask.ndim == 3
     assert mask.shape == (N, M, P)
 
-    surface = np.isin(mask, [2])
+    surface = np.isin(mask, [V_S1])
     assert surface.shape == (N, M, P)
     x, y, z = np.nonzero(surface)
     x0 = x.copy()
@@ -522,7 +469,7 @@ def plot_gradient_norm_surface():
 def plot_grad_norm_hist():
     mask = get_mask(REGION)
     assert mask.ndim == 3
-    i, j, k = np.nonzero(np.isin(mask, [2]))
+    i, j, k = np.nonzero(np.isin(mask, [V_S1]))
 
     grad = get_gradient(REGION)
     grad = np.array(grad, dtype=np.float32)
@@ -533,5 +480,5 @@ def plot_grad_norm_hist():
 
 
 if __name__ == '__main__':
-    # compute_streamlines(REGION, REGION_ID)
+    compute_streamlines(REGION, REGION_ID)
     plot_streamlines(REGION, MAX_PATHS_PLOT)
