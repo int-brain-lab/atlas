@@ -6,6 +6,7 @@
 # ------------------------------------------------------------------------------------------------
 
 from common import *
+import numba
 
 
 # ------------------------------------------------------------------------------------------------
@@ -22,23 +23,56 @@ ITERATIONS = 1000
 # Normal
 # ------------------------------------------------------------------------------------------------
 
+@numba.njit
+def _mode(arr):
+    arr = arr.ravel()
+    m = arr.min()
+    arr -= m
+    return np.argmax(np.bincount(arr)) + m
+
+
+@numba.njit(parallel=True)
+def smoothen_normal(normal, mask, l=3):
+    assert mask.ndim == 3
+    # assert mask.dtype. == np.bool
+    ni, nj, nk = mask.shape
+
+    assert normal.ndim == 4
+    #assert normal.dtype == np.int8
+    assert normal.shape == (ni, nj, nk, 3)
+
+    normal_smooth = np.zeros_like(normal, dtype=np.int8)
+
+    for xi in numba.prange(l, ni-l):
+        for xj in numba.prange(l, nj-l):
+            for xk in numba.prange(l, nk-l):
+                for d in numba.prange(3):
+                    arr = normal[xi-l:xi+l+1, xj-l:xj+l+1, xk-l:xk+l+1, d]
+                    arrm = mask[xi-l:xi+l+1, xj-l:xj+l+1, xk-l:xk+l+1]
+                    if arr.size > 0 and arrm.sum() > 0:
+                        normal_smooth[xi, xj, xk, d] = _mode(
+                            arr.ravel()[arrm.ravel()])
+
+    return normal_smooth
+
+
 def compute_normal(mask):
     i, j, k = np.nonzero(np.isin(mask, (V_S1, V_S2, V_Si)))
-    vi0 = (mask[i-1,j,k] == V_VOLUME).astype(np.int8)
-    vi1 = (mask[i+1,j,k] == V_VOLUME).astype(np.int8)
-    vj0 = (mask[i,j-1,k] == V_VOLUME).astype(np.int8)
-    vj1 = (mask[i,j+1,k] == V_VOLUME).astype(np.int8)
-    vk0 = (mask[i,j,k-1] == V_VOLUME).astype(np.int8)
-    vk1 = (mask[i,j,k+1] == V_VOLUME).astype(np.int8)
+    vi0 = (mask[i-1, j, k] == V_VOLUME).astype(np.int8)
+    vi1 = (mask[i+1, j, k] == V_VOLUME).astype(np.int8)
+    vj0 = (mask[i, j-1, k] == V_VOLUME).astype(np.int8)
+    vj1 = (mask[i, j+1, k] == V_VOLUME).astype(np.int8)
+    vk0 = (mask[i, j, k-1] == V_VOLUME).astype(np.int8)
+    vk1 = (mask[i, j, k+1] == V_VOLUME).astype(np.int8)
     count = vi0 + vi1 + vj0 + vj1 + vk0 + vk1  # (n,)
-    pos = np.c_[i,j,k]
+    pos = np.c_[i, j, k]
     normal = (
-        np.c_[i-1,j,k] * vi0[:, np.newaxis] +
-        np.c_[i+1,j,k] * vi1[:, np.newaxis] +
-        np.c_[i,j-1,k] * vj0[:, np.newaxis] +
-        np.c_[i,j+1,k] * vj1[:, np.newaxis] +
-        np.c_[i,j,k-1] * vk0[:, np.newaxis] +
-        np.c_[i,j,k+1] * vk1[:, np.newaxis] -
+        np.c_[i-1, j, k] * vi0[:, np.newaxis] +
+        np.c_[i+1, j, k] * vi1[:, np.newaxis] +
+        np.c_[i, j-1, k] * vj0[:, np.newaxis] +
+        np.c_[i, j+1, k] * vj1[:, np.newaxis] +
+        np.c_[i, j, k-1] * vk0[:, np.newaxis] +
+        np.c_[i, j, k+1] * vk1[:, np.newaxis] -
         count[:, np.newaxis] * pos)
 
     Ni = np.zeros((N, M, P), dtype=np.int8)
@@ -49,7 +83,14 @@ def compute_normal(mask):
     Nj[i, j, k] = normal[:, 1]
     Nk[i, j, k] = normal[:, 2]
 
-    return np.stack((Ni, Nj, Nk), axis=-1)
+    normal_dense = np.stack((Ni, Nj, Nk), axis=-1)
+
+    # Mask volume
+    mask = np.zeros(normal_dense.shape[:3], dtype=bool)
+    mask[i, j, k] = True
+    smooth = smoothen_normal(normal_dense, mask)
+
+    return smooth
 
 
 def get_normal(region):
@@ -117,7 +158,7 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
     if (1 <= i) and (1 <= j) and (1 <= k) and (i <= nc - 2) and (j <= mc - 2) and (k <= pc - 2):
         m = M[i, j, k]
         # Direction of streamlines: S1 (val=1) ==> S2 (val=3)
-        if m  == V_S1 or m == V_S2 or m == V_Si: # NOTE: remove the "m == V_Si" part ??
+        if m == V_S1 or m == V_S2 or m == V_Si:  # NOTE: remove the "m == V_Si" part ??
             ni = Ni[i, j, k]
             nj = Nj[i, j, k]
             nk = Nk[i, j, k]
@@ -126,9 +167,9 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
                 ni, nj, nk = -ni, -nj, -nk
 
             Uout[i, j, k] = (
-                Uout[i+ni,j,k] +
-                Uout[i,j+nj,k] +
-                Uout[i,j,k+nk] +
+                Uout[i+ni, j, k] +
+                Uout[i, j+nj, k] +
+                Uout[i, j, k+nk] +
                 1) / 3.0  # NOTE: or -1??
 
 
@@ -155,7 +196,8 @@ class Runner:
 
         # Normal.
         size = 3 * nc * mc * pc / 1024. ** 2
-        print(f"Creating 3 normal arrays of total size {size:.2f} MB on the GPU...")
+        print(
+            f"Creating 3 normal arrays of total size {size:.2f} MB on the GPU...")
         # Transfer M from CPU to GPU.
         Ni_gpu = cp.asarray(normal[..., 0][box])
         Nj_gpu = cp.asarray(normal[..., 1][box])
@@ -197,10 +239,12 @@ class Runner:
         # the Laplacian in parallel on the GPU.
         # NOTE: each Python iteration here is actually made of 2 algorithm iterations
         laplace[self.grid, self.block](self.Ua, self.Ub, self.M, *self.args)
-        vonneumann[self.grid, self.block](self.Ub, self.M, self.Ni, self.Nj, self.Nk, *self.args)
+        vonneumann[self.grid, self.block](
+            self.Ub, self.M, self.Ni, self.Nj, self.Nk, *self.args)
 
         laplace[self.grid, self.block](self.Ub, self.Ua, self.M, *self.args)
-        vonneumann[self.grid, self.block](self.Ua, self.M, self.Ni, self.Nj, self.Nk, *self.args)
+        vonneumann[self.grid, self.block](
+            self.Ua, self.M, self.Ni, self.Nj, self.Nk, *self.args)
 
     def run(self, iterations):
         for i in tqdm(range(iterations)):
@@ -253,7 +297,12 @@ def compute_laplacian():
 # ------------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    # compute_laplacian()
+
+    # normal = get_normal(REGION)
+    # assert normal.ndim == 4
+    # assert normal.shape == (N, M, P, 3)
+
+    compute_laplacian()
     U = load_npy(filepath(REGION, 'laplacian'))
 
     i0 = 500
@@ -266,7 +315,8 @@ if __name__ == '__main__':
     Umax = np.quantile(U.ravel(), 1-q)
     norm = Normalize(vmin=Umin, vmax=Umax)
 
-    ims = ax.imshow(U[i0, :, :], interpolation='none', origin='lower', norm=norm)
+    ims = ax.imshow(U[i0, :, :], interpolation='none',
+                    origin='lower', norm=norm)
 
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size='5%', pad=0.05)
