@@ -6,101 +6,14 @@
 # ------------------------------------------------------------------------------------------------
 
 from common import *
-import numba
+from surface import *
 
 
 # ------------------------------------------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------------------------------------------
 
-REGION = 'isocortex'
-REGION_ID = 315
-N, M, P = 1320, 800, 1140
 ITERATIONS = 5000
-
-
-# ------------------------------------------------------------------------------------------------
-# Normal
-# ------------------------------------------------------------------------------------------------
-
-@numba.njit
-def _mode(arr):
-    arr = arr.ravel()
-    m = arr.min()
-    arr -= m
-    return np.argmax(np.bincount(arr)) + m
-
-
-@numba.njit(parallel=True)
-def smoothen_normal(normal, mask, l=3):
-    assert mask.ndim == 3
-    # assert mask.dtype. == np.bool
-    ni, nj, nk = mask.shape
-
-    assert normal.ndim == 4
-    #assert normal.dtype == np.int8
-    assert normal.shape == (ni, nj, nk, 3)
-
-    normal_smooth = np.zeros_like(normal, dtype=np.int8)
-
-    for xi in numba.prange(l, ni-l):
-        for xj in numba.prange(l, nj-l):
-            for xk in numba.prange(l, nk-l):
-                for d in numba.prange(3):
-                    arr = normal[xi-l:xi+l+1, xj-l:xj+l+1, xk-l:xk+l+1, d]
-                    arrm = mask[xi-l:xi+l+1, xj-l:xj+l+1, xk-l:xk+l+1]
-                    if arr.size > 0 and arrm.sum() > 0:
-                        normal_smooth[xi, xj, xk, d] = _mode(
-                            arr.ravel()[arrm.ravel()])
-
-    return normal_smooth
-
-
-def compute_normal(mask):
-    i, j, k = np.nonzero(np.isin(mask, (V_S1, V_S2, V_Si)))
-    vi0 = (mask[i-1, j, k] == V_VOLUME).astype(np.int8)
-    vi1 = (mask[i+1, j, k] == V_VOLUME).astype(np.int8)
-    vj0 = (mask[i, j-1, k] == V_VOLUME).astype(np.int8)
-    vj1 = (mask[i, j+1, k] == V_VOLUME).astype(np.int8)
-    vk0 = (mask[i, j, k-1] == V_VOLUME).astype(np.int8)
-    vk1 = (mask[i, j, k+1] == V_VOLUME).astype(np.int8)
-    count = vi0 + vi1 + vj0 + vj1 + vk0 + vk1  # (n,)
-    pos = np.c_[i, j, k]
-    normal = (
-        np.c_[i-1, j, k] * vi0[:, np.newaxis] +
-        np.c_[i+1, j, k] * vi1[:, np.newaxis] +
-        np.c_[i, j-1, k] * vj0[:, np.newaxis] +
-        np.c_[i, j+1, k] * vj1[:, np.newaxis] +
-        np.c_[i, j, k-1] * vk0[:, np.newaxis] +
-        np.c_[i, j, k+1] * vk1[:, np.newaxis] -
-        count[:, np.newaxis] * pos)
-
-    Ni = np.zeros((N, M, P), dtype=np.int8)
-    Nj = np.zeros((N, M, P), dtype=np.int8)
-    Nk = np.zeros((N, M, P), dtype=np.int8)
-
-    Ni[i, j, k] = normal[:, 0]
-    Nj[i, j, k] = normal[:, 1]
-    Nk[i, j, k] = normal[:, 2]
-
-    normal_dense = np.stack((Ni, Nj, Nk), axis=-1)
-
-    # Mask volume
-    mask = np.zeros(normal_dense.shape[:3], dtype=bool)
-    mask[i, j, k] = True
-    smooth = smoothen_normal(normal_dense, mask)
-
-    return smooth
-
-
-def get_normal(region):
-    path = filepath(region, 'normal')
-    if path.exists():
-        return load_npy(path)
-    print(f"Computing surface normal...")
-    normal = compute_normal(get_mask(region))
-    save_npy(path, normal)
-    return load_npy(path)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -118,10 +31,11 @@ def clear_gpu_memory():
 def bounding_box(mask):
     idx = np.nonzero(mask != 0)
     bounds = np.array([(np.min(idx[i]), np.max(idx[i])) for i in range(3)])
+    margin = 6
     box = tuple(
-        slice(bounds[i, 0] - 1, bounds[i, 1] + 1, None)
+        slice(bounds[i, 0] - margin, bounds[i, 1] + margin, None)
         for i in range(3))
-    nc, mc, pc = bounds[:, 1] - bounds[:, 0] + 2
+    nc, mc, pc = bounds[:, 1] - bounds[:, 0] + 2 * margin
     return box, (nc, mc, pc)
 
 
@@ -174,16 +88,17 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
 
 
 class Runner:
-    def __init__(self, M, normal, U=None):
-        n, m, p = M.shape
+    def __init__(self, mask, normal, U=None):
+        n, m, p = mask.shape
         self.shape = (n, m, p)
-        assert M.dtype == np.uint8
-        assert normal.dtype == np.int8
+        assert mask.dtype == np.uint8
+        assert normal.dtype == np.float32
         assert normal.shape == self.shape + (3,)
 
         # Compute the bounding box of the mask.
         print("Computing the bounding box of the mask volume...")
-        box, (nc, mc, pc) = bounding_box(M)
+        box, (nc, mc, pc) = bounding_box(mask)
+
         assert nc > 0
         assert mc > 0
         assert pc > 0
@@ -191,17 +106,19 @@ class Runner:
         # Mask.
         size = nc * mc * pc / 1024. ** 2
         print(f"Creating mask array of total size {size:.2f} MB on the GPU...")
-        # Transfer M from CPU to GPU.
-        Mgpu = cp.asarray(M[box])
+        # Transfer the pask to the GPU.
+        mask_gpu = cp.asarray(mask[box])
+
+        # TODO: split the mask in 2 hemispheres, with padding
 
         # Normal.
-        size = 3 * nc * mc * pc / 1024. ** 2
+        size = 3 * nc * mc * pc * 4 / 1024. ** 2
         print(
             f"Creating 3 normal arrays of total size {size:.2f} MB on the GPU...")
-        # Transfer M from CPU to GPU.
-        Ni_gpu = cp.asarray(normal[..., 0][box])
-        Nj_gpu = cp.asarray(normal[..., 1][box])
-        Nk_gpu = cp.asarray(normal[..., 2][box])
+        # Transfer the normal to the GPU.
+        normal0_gpu = cp.asarray(normal[..., 0][box])
+        normal1_gpu = cp.asarray(normal[..., 1][box])
+        normal2_gpu = cp.asarray(normal[..., 2][box])
 
         # Create the two scalar fields.
         size = 2 * nc * mc * pc * 4 / 1024. ** 2
@@ -213,7 +130,7 @@ class Runner:
             Ua[...] = cp.asarray(U[box])
         else:
             # Initial values: the same as the mask.
-            Ua[...] = Mgpu
+            Ua[...] = mask_gpu
 
         Ub = Ua.copy()
 
@@ -226,10 +143,10 @@ class Runner:
         # Main loop
         self.args = (cp.int32(nc), cp.int32(mc), cp.int32(pc))
 
-        self.M = Mgpu
-        self.Ni = Ni_gpu
-        self.Nj = Nj_gpu
-        self.Nk = Nk_gpu
+        self.mask = mask_gpu
+        self.normal0 = normal0_gpu
+        self.normal1 = normal1_gpu
+        self.normal2 = normal2_gpu
         self.Ua = Ua
         self.Ub = Ub
         self.box = box
@@ -238,13 +155,13 @@ class Runner:
         # ping-pong between the 2 arrays to avoid edge-effects while computing
         # the Laplacian in parallel on the GPU.
         # NOTE: each Python iteration here is actually made of 2 algorithm iterations
-        laplace[self.grid, self.block](self.Ua, self.Ub, self.M, *self.args)
+        laplace[self.grid, self.block](self.Ua, self.Ub, self.mask, *self.args)
         vonneumann[self.grid, self.block](
-            self.Ub, self.M, self.Ni, self.Nj, self.Nk, *self.args)
+            self.Ub, self.mask, self.normal0, self.normal1, self.normal2, *self.args)
 
-        laplace[self.grid, self.block](self.Ub, self.Ua, self.M, *self.args)
+        laplace[self.grid, self.block](self.Ub, self.Ua, self.mask, *self.args)
         vonneumann[self.grid, self.block](
-            self.Ua, self.M, self.Ni, self.Nj, self.Nk, *self.args)
+            self.Ua, self.mask, self.normal0, self.normal1, self.normal2, *self.args)
 
     def run(self, iterations):
         for i in tqdm(range(iterations)):
@@ -260,12 +177,12 @@ class Runner:
         return Uout
 
     def clear(self):
-        del self.M
+        del self.mask
         del self.Ua
         del self.Ub
-        del self.Ni_gpu
-        del self.Nj_gpu
-        del self.Nk_gpu
+        del self.normal0_gpu
+        del self.normal1_gpu
+        del self.normal2_gpu
         clear_gpu_memory()
 
 
@@ -274,7 +191,6 @@ def compute_laplacian():
     mask = get_mask(REGION)
     assert mask.ndim == 3
     assert mask.shape == (N, M, P)
-    # print(np.bincount(mask.ravel()))
 
     normal = get_normal(REGION)
     assert normal.ndim == 4
@@ -297,46 +213,42 @@ def compute_laplacian():
 # ------------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-
-    # normal = get_normal(REGION)
-    # assert normal.ndim == 4
-    # assert normal.shape == (N, M, P, 3)
-
     compute_laplacian()
-    U = load_npy(filepath(REGION, 'laplacian'))
 
-    i0 = 500
-    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    # U = load_npy(filepath(REGION, 'laplacian'))
 
-    # Colormap scaling.
-    # Umin, Umax = U.min(), U.max()
-    q = .001
-    Umin = np.quantile(U.ravel(), q)
-    Umax = np.quantile(U.ravel(), 1-q)
-    norm = Normalize(vmin=Umin, vmax=Umax)
+    # i0 = 500
+    # fig, ax = plt.subplots(1, 1, figsize=(8, 8))
 
-    ims = ax.imshow(U[i0, :, :], interpolation='none',
-                    origin='lower', norm=norm)
+    # # Colormap scaling.
+    # # Umin, Umax = U.min(), U.max()
+    # q = .001
+    # Umin = np.quantile(U.ravel(), q)
+    # Umax = np.quantile(U.ravel(), 1-q)
+    # norm = Normalize(vmin=Umin, vmax=Umax)
 
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes('right', size='5%', pad=0.05)
-    fig.colorbar(ims, cax=cax, orientation='vertical')
+    # ims = ax.imshow(U[i0, :, :], interpolation='none',
+    #                 origin='lower', norm=norm)
 
-    axs = plt.axes([0.25, 0.1, 0.65, 0.03])
-    slider = Slider(
-        ax=axs,
-        label="i",
-        valmin=0,
-        valstep=1,
-        valmax=N-1,
-        valinit=i0,
-        orientation="horizontal"
-    )
+    # divider = make_axes_locatable(ax)
+    # cax = divider.append_axes('right', size='5%', pad=0.05)
+    # fig.colorbar(ims, cax=cax, orientation='vertical')
 
-    @slider.on_changed
-    def update(i):
-        i = int(i)
-        ims.set_data(U[i, :, :])
-        fig.canvas.draw_idle()
+    # axs = plt.axes([0.25, 0.1, 0.65, 0.03])
+    # slider = Slider(
+    #     ax=axs,
+    #     label="i",
+    #     valmin=0,
+    #     valstep=1,
+    #     valmax=N-1,
+    #     valinit=i0,
+    #     orientation="horizontal"
+    # )
 
-    plt.show()
+    # @slider.on_changed
+    # def update(i):
+    #     i = int(i)
+    #     ims.set_data(U[i, :, :])
+    #     fig.canvas.draw_idle()
+
+    # plt.show()
