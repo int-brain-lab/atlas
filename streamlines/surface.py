@@ -12,6 +12,9 @@ from common import *
 # Constants
 # ------------------------------------------------------------------------------------------------
 
+SMOOTH_WIDTH = 10
+SMOOTH_SIGMA = 3.0
+
 
 # ------------------------------------------------------------------------------------------------
 # Normal
@@ -56,8 +59,8 @@ def compute_normal(mask):
 Masked convolution:
 
 $$
-\widetilde x[i_0,j_0,k_0,d] = \frac{
-    \sum_{i,j,k} x[i_0-i, j_0-j, k_0-k,d] \cdot m[i_0-i, j_0-j, k_0-k] \cdot g[i,j,k]}
+\widetilde x[i_0,j_0,k_0,d] = \frac
+    {\sum_{i,j,k} x[i_0-i, j_0-j, k_0-k,d] \cdot m[i_0-i, j_0-j, k_0-k] \cdot g[i,j,k]}
     {\sum_{i,j,k} m[i_0-i, j_0-j, k_0-k] \cdot g[i,j,k]}
 $$
 """
@@ -180,9 +183,8 @@ def get_normal(region):
     surf_indices = get_surface_indices(region, surf_vals)
     assert surf_indices.ndim == 2
     assert surf_indices.shape[1] == 3
-    width = 8
-    sigma = 2.0
-    normal_smooth = convol(normal, surface_mask, surf_idx=surf_indices, width=width, sigma=sigma)
+    normal_smooth = convol(
+        normal, surface_mask, surf_idx=surf_indices, width=SMOOTH_WIDTH, sigma=SMOOTH_SIGMA)
 
     # Save the normal file.
     save_npy(path, normal_smooth)
@@ -196,30 +198,30 @@ def get_normal(region):
 if __name__ == '__main__':
     normal = get_normal(REGION)
 
-    i0 = 500
-    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    # i0 = 500
+    # fig, ax = plt.subplots(1, 1, figsize=(8, 8))
 
-    ims = ax.imshow(normal[i0, :, :, 0], interpolation='none', origin='upper')
+    # ims = ax.imshow(normal[i0, :, :, 0], interpolation='none', origin='upper')
 
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes('right', size='5%', pad=0.05)
-    fig.colorbar(ims, cax=cax, orientation='vertical')
+    # divider = make_axes_locatable(ax)
+    # cax = divider.append_axes('right', size='5%', pad=0.05)
+    # fig.colorbar(ims, cax=cax, orientation='vertical')
 
-    axs = plt.axes([0.25, 0.1, 0.65, 0.03])
-    slider = Slider(
-        ax=axs,
-        label="i",
-        valmin=0,
-        valstep=1,
-        valmax=N-1,
-        valinit=i0,
-        orientation="horizontal"
-    )
+    # axs = plt.axes([0.25, 0.1, 0.65, 0.03])
+    # slider = Slider(
+    #     ax=axs,
+    #     label="i",
+    #     valmin=0,
+    #     valstep=1,
+    #     valmax=N-1,
+    #     valinit=i0,
+    #     orientation="horizontal"
+    # )
 
-    @slider.on_changed
-    def update(i):
-        i = int(i)
-        ims.set_data(normal[i, :, :, 0])
-        fig.canvas.draw_idle()
+    # @slider.on_changed
+    # def update(i):
+    #     i = int(i)
+    #     ims.set_data(normal[i, :, :, 0])
+    #     fig.canvas.draw_idle()
 
-    plt.show()
+    # plt.show()
