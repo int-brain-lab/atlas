@@ -98,7 +98,7 @@ def _convol(arrp, maskp, surf_idx=None, gauss=None):
     print(f"Starting the convolution")
     for iter in range(n):
         if iter % 100000 == 0:
-            print(str(100 * iter / float(n)) + '%')
+            print(100 * iter / float(n))
         i0, j0, k0 = surf_idx[iter]
 
         # HACK: NO PADDING

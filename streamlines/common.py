@@ -10,6 +10,7 @@ from pathlib import Path
 
 import nrrd
 import h5py
+import numba
 from cupyx import jit
 import cupy as cp
 from tqdm import tqdm
