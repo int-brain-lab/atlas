@@ -14,3 +14,9 @@
 
 * Run `python gradient.py`
 * The paths will be saved in `paths.npy` shape (n_paths, max_iter, 3)
+
+Scripts:
+
+surface.py
+laplacian.py
+streamlines.py
