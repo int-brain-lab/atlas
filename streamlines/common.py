@@ -35,6 +35,10 @@ V_VOLUME = 2
 V_S2 = 3
 V_Si = 4
 
+REGION = 'isocortex'
+REGION_ID = 315
+N, M, P = 1320, 800, 1140
+
 
 # ------------------------------------------------------------------------------------------------
 # Generic data loading functions
@@ -142,3 +146,18 @@ def get_mask(region):
     mask = load_mask_nrrd(mask_nrrd, boundary_nrrd)
     save_npy(path, mask)
     return load_npy(path)
+
+
+def get_surface_mask(region, surf_vals):
+    mask = get_mask(region)
+    surface_mask = np.isin(mask, surf_vals)
+    assert surface_mask.shape == mask.shape
+    assert surface_mask.dtype == bool
+    return surface_mask
+
+
+def get_surface_indices(region, surf_vals):
+    surface_mask = get_surface_mask(region, surf_vals)
+    i, j, k = np.nonzero(surface_mask)
+    pos = np.c_[i,j,k]
+    return pos
