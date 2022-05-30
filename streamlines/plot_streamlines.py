@@ -2,9 +2,13 @@ import time
 import numpy as np
 import numpy.random as nr
 
+from common import *
+from streamlines import *
+
 from datoviz import canvas, run, colormap
 
 
+"""
 def plot_panel(panel, paths):
     assert paths.ndim == 3
     n, l, _ = paths.shape
@@ -26,7 +30,7 @@ def plot_panel(panel, paths):
     v.data('color', color)
 
 
-def plot_streamlines(region, max_paths=MAX_PATHS_PLOT):
+def plot_streamlines(region, max_paths=None):
 
     paths_allen = load_npy(filepath(region, 'streamlines_allen'))
     paths_ibl = load_npy(filepath(region, 'streamlines_ibl'))
@@ -230,61 +234,47 @@ def plot_grad_norm_hist():
     g = gradn[i, j, k]
     plt.hist(g, bins=100, log=True)
     plt.show()
+"""
 
 
-paths_allen = np.load("resampled_allen.npy", mmap_mode='r')
-paths_ibl = np.load("resampled_ibl.npy", mmap_mode='r')
+def plot_panel(panel, paths):
+    assert paths.ndim == 3
+    n, l, _ = paths.shape
+    assert _ == 3
+    length = l * np.ones(n)  # length of each path
 
-n = 100000
-paths_allen = np.array(paths_allen[::int(paths_allen.shape[0] // n), ...][:n])
-paths_ibl = np.array(
-    paths_ibl[::int(paths_ibl.shape[0] // n), ...][:n][:, ::-1, :])
+    color = np.tile(np.linspace(0, 1, l), n)
+    color = colormap(color, vmin=0, vmax=1, cmap='viridis', alpha=1)
 
-assert paths_allen.shape[0] == n
-assert paths_ibl.shape[0] == n
+    v = panel.visual('line_strip', depth_test=True)
+    v.data('pos', paths.reshape((-1, 3)))
+    v.data('length', length)
+    v.data('color', color)
 
-l = 100
-length = l * np.ones(n)  # length of each path
+    # v = panel.visual('point', depth_test=True)
+    # v.data('pos', paths[:, 0, :].reshape((-1, 3)).astype(np.float32))
+    # color = colormap(np.arange(n, dtype=np.double), vmin=0,
+    #                  vmax=1, cmap='viridis', alpha=1)
+    # v.data('color', color)
 
 
-color = np.tile(np.linspace(0, 1, l), n)
-color = colormap(color, vmin=0, vmax=1, cmap='viridis', alpha=.75)
+paths_allen = load_npy(filepath(REGION, 'streamlines_allen'))
+paths_ibl = load_npy(filepath(REGION, 'streamlines_ibl'))
+
+# Subset the paths.
+max_paths = 50000
+paths_allen = subset(paths_allen, max_paths)
+paths_ibl = subset(paths_ibl, max_paths)
+
+paths_ibl = paths_ibl[:, ::-1, :]
 
 c = canvas(show_fps=True)
 s = c.scene(cols=2)
-
-
-# Left panel.
-# ------------
 p0 = s.panel(col=0, controller='arcball')
-
-# v0 = p0.visual('line_strip', depth_test=True)
-# v0.data('pos', paths_allen.reshape((-1, 3)))
-# v0.data('length', length)
-# v0.data('color', color)
-
-# Points.
-v0p = p0.visual('point', depth_test=True)
-v0p.data('pos', paths_allen[:, 0, :])
-v0p.data('color', np.array([[255, 0, 0, 128]]))
-
-
-# Right panel.
-# ------------
 p1 = s.panel(col=1, controller='arcball')
-
-# v1 = p1.visual('line_strip', depth_test=True)
-# v1.data('pos', paths_ibl.reshape((-1, 3)))
-# v1.data('length', length)
-# v1.data('color', color)
-
-# Points.
-v1p = p1.visual('point', depth_test=True)
-v1p.data('pos', paths_ibl[:, 0, :])
-v1p.data('color', np.array([[255, 0, 0, 128]]))
-
-
-# Panel linking.
 p0.link_to(p1)
+
+plot_panel(p0, paths_allen)
+plot_panel(p1, paths_ibl)
 
 run()
