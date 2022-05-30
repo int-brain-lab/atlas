@@ -19,8 +19,8 @@ REGION = 'isocortex'
 REGION_ID = 315
 N, M, P = 1320, 800, 1140
 PATH_LEN = 100
-MAX_POINTS = 10000
-MAX_ITER = 2
+MAX_POINTS = 100000
+MAX_ITER = 500
 STEP = .5
 
 
@@ -35,7 +35,9 @@ def last_nonzero(arr, axis, invalid_val=-1):
     return np.where(mask.any(axis=axis), val, invalid_val)
 
 
-def subset(paths, max_paths):
+def subset(paths, max_paths=None):
+    if not max_paths:
+        return paths
     n = paths.shape[0]
     k = max(1, int(math.floor(float(n) / float(max_paths))))
     return np.array(paths[::k, ...])
@@ -131,8 +133,8 @@ def init_allen(region):
 def init_ibl(region):
     mask = get_mask(region)
     assert mask.ndim == 3
-    i, j, k = np.nonzero(np.isin(mask, [V_S1, V_Si]))
-    pos = i2x(np.c_[i, j, k])
+    i, j, k = np.nonzero(np.isin(mask, [V_S2]))
+    pos = np.c_[i, j, k]
     return pos
 
 
@@ -147,18 +149,20 @@ def integrate_step(pos, step, gradient, xyz):
     for i in range(3):
         pos[:, i] = np.clip(pos[:, i], xyz[i][0], xyz[i][-1])
     g = interpn(xyz, gradient, pos)
-    return pos - step * g
+    return pos + step * g
 
 
-def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=0, stay_in_volume=False):
+def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=0):
+    # , stay_in_volume=False):
     assert pos.ndim == 2
     n_paths = pos.shape[0]
     assert pos.shape == (n_paths, 3)
 
     n, m, p = mask.shape
-    x = np.linspace(0, res_um * n, n) + OFFSET_X
-    y = np.linspace(0, res_um * m, m) + OFFSET_Y
-    z = np.linspace(0, res_um * p, p) + OFFSET_Z
+    res_um = 1
+    x = np.arange(0, res_um * n, res_um)
+    y = np.arange(0, res_um * m, res_um)
+    z = np.arange(0, res_um * p, res_um)
     xyz = (x, y, z)
 
     out = np.zeros((n_paths, max_iter, 3), dtype=np.float32)
@@ -171,28 +175,25 @@ def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=0, stay
     for iter in tqdm(range(1, max_iter), desc="Integrating..."):
         prev = out[kept, iter - 1, :]
         out[kept, iter, :] = integrate_step(prev, step, gradient, xyz)
-        if not stay_in_volume:
-            continue
+        # if not stay_in_volume:
+        #     continue
 
-        # Stop integrating the paths the go outside of the volume.
-        # get the masks on the current positions
-        pos_grid[:] = x2i(out[:, iter, :])
-        i, j, k = pos_grid.T
-        kept = mask[i, j, k] != 0
-        # print(np.bincount(mask[i, j, k]))
-        assert kept.shape == (n_paths,)
-        n_kept = kept.sum()
-        # if iter % (int(math.ceil(max_iter / 100.0))) == 0:
-        #     print(f"{n_kept}/{n_paths} remaining")
-        if n_kept == 0:
-            break
+        # # Stop integrating the paths the go outside of the volume.
+        # # get the masks on the current positions
+        # pos_grid[:] = out[:, iter, :]
+        # i, j, k = pos_grid.T
+        # kept = mask[i, j, k] != 0
+        # assert kept.shape == (n_paths,)
+        # n_kept = kept.sum()
+        # if n_kept == 0:
+        #     break
 
     return out
 
 
 def path_lengths(paths):
     print("Computing the path lengths...")
-    streamlines = x2i(paths)
+    streamlines = paths
     n_paths, path_len, _ = streamlines.shape
     d = np.abs(np.diff(paths, axis=1)).max(axis=2)
     ln = last_nonzero(d, 1)
@@ -215,7 +216,7 @@ def resample_paths(paths, num=PATH_LEN):
     return out
 
 
-def compute_streamlines(region, region_id, init_points=None):
+def compute_streamlines(region, init_points=None):
 
     # Load the region mask.
     mask = get_mask(region)
@@ -223,7 +224,6 @@ def compute_streamlines(region, region_id, init_points=None):
 
     # Download or load the mesh (initial positions of the streamlines).
     if init_points is None:
-        # init_points = get_mesh(region_id, region)
         init_points = init_ibl(region)
     assert init_points.ndim == 2
     assert init_points.shape[1] == 3
@@ -248,5 +248,5 @@ def compute_streamlines(region, region_id, init_points=None):
 
 
 if __name__ == '__main__':
-    # compute_streamlines(REGION, REGION_ID)
-    get_gradient(REGION)
+    # get_gradient(REGION)
+    compute_streamlines(REGION)
