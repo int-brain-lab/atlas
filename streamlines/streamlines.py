@@ -91,20 +91,31 @@ def compute_grad(mask, U):
     grad[i[idx], j[idx], k[idx], 2] = Uclip[
         i[idx], j[idx], k[idx]] - Uclip[i[idx], j[idx], k[idx]-1]
 
+    return grad
+
+
+def normalize_gradient(grad, threshold=0):
     # Normalize the gradient.
     gradn = np.linalg.norm(grad, axis=3)
-    idx = gradn > 0
+
+    idx = gradn > threshold
     grad[idx] /= gradn[idx, np.newaxis]
+
+    # Kill gradient vectors that are too small.
+    if threshold > 0:
+        grad[~idx] = 0
 
     return grad
 
 
 def get_gradient(region):
-    path = filepath(region, 'gradient')
+    path = filepath(region, 'gradient_allen')
     gradient = load_npy(path)
     if gradient is not None:
         return gradient
-    U = load_npy(filepath(region, 'laplacian'))
+
+    # Load the laplacian to compute the gradient.
+    U = load_npy(filepath(region, 'laplacian_allen'))
     if U is None:
         # TODO: compute the laplacian with code in streamlines.py
         raise NotImplementedError()
@@ -113,9 +124,14 @@ def get_gradient(region):
     # Load the mask.
     mask = load_npy(filepath(region, 'mask'))
 
+    # Compute the gradient.
     gradient = compute_grad(mask, U)
     assert gradient.ndim == 4
-    # save the gradient
+
+    # Normalize the gradient.
+    gradient = normalize_gradient(gradient)
+
+    # Save the gradient.
     save_npy(path, gradient)
 
     del gradient
@@ -248,5 +264,5 @@ def compute_streamlines(region, init_points=None):
 
 
 if __name__ == '__main__':
-    # get_gradient(REGION)
-    compute_streamlines(REGION)
+    get_gradient(REGION)
+    # compute_streamlines(REGION)
