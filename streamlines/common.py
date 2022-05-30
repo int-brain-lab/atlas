@@ -160,5 +160,9 @@ def get_surface_mask(region, surf_vals):
 def get_surface_indices(region, surf_vals):
     surface_mask = get_surface_mask(region, surf_vals)
     i, j, k = np.nonzero(surface_mask)
-    pos = np.c_[i,j,k]
+    pos = np.c_[i, j, k]
     return pos
+
+
+if __name__ == '__main__':
+    get_mask(REGION)
