@@ -22,21 +22,21 @@ SMOOTH_SIGMA = 3.0
 
 def compute_normal(mask):
     i, j, k = np.nonzero(np.isin(mask, (V_S1, V_S2, V_Si)))
-    vi0 = (mask[i-1,j,k] == V_VOLUME).astype(np.int8)
-    vi1 = (mask[i+1,j,k] == V_VOLUME).astype(np.int8)
-    vj0 = (mask[i,j-1,k] == V_VOLUME).astype(np.int8)
-    vj1 = (mask[i,j+1,k] == V_VOLUME).astype(np.int8)
-    vk0 = (mask[i,j,k-1] == V_VOLUME).astype(np.int8)
-    vk1 = (mask[i,j,k+1] == V_VOLUME).astype(np.int8)
+    vi0 = (mask[i-1, j, k] == V_VOLUME).astype(np.int8)
+    vi1 = (mask[i+1, j, k] == V_VOLUME).astype(np.int8)
+    vj0 = (mask[i, j-1, k] == V_VOLUME).astype(np.int8)
+    vj1 = (mask[i, j+1, k] == V_VOLUME).astype(np.int8)
+    vk0 = (mask[i, j, k-1] == V_VOLUME).astype(np.int8)
+    vk1 = (mask[i, j, k+1] == V_VOLUME).astype(np.int8)
     count = vi0 + vi1 + vj0 + vj1 + vk0 + vk1  # (n,)
-    pos = np.c_[i,j,k]
+    pos = np.c_[i, j, k]
     normal = (
-        np.c_[i-1,j,k] * vi0[:, np.newaxis] +
-        np.c_[i+1,j,k] * vi1[:, np.newaxis] +
-        np.c_[i,j-1,k] * vj0[:, np.newaxis] +
-        np.c_[i,j+1,k] * vj1[:, np.newaxis] +
-        np.c_[i,j,k-1] * vk0[:, np.newaxis] +
-        np.c_[i,j,k+1] * vk1[:, np.newaxis] -
+        np.c_[i-1, j, k] * vi0[:, np.newaxis] +
+        np.c_[i+1, j, k] * vi1[:, np.newaxis] +
+        np.c_[i, j-1, k] * vj0[:, np.newaxis] +
+        np.c_[i, j+1, k] * vj1[:, np.newaxis] +
+        np.c_[i, j, k-1] * vk0[:, np.newaxis] +
+        np.c_[i, j, k+1] * vk1[:, np.newaxis] -
         count[:, np.newaxis] * pos)
 
     Ni = np.zeros((N, M, P), dtype=np.int8)
@@ -75,7 +75,8 @@ def gaussian_kernel(size, sigma):
     assert size % 2 == 0
     s = int(size // 2)
     x, y, z = np.mgrid[-s:s, -s:s, -s:s]
-    k = np.exp(-(np.power(x, 2) + np.power(y, 2) + np.power(z, 2)) / (2 * (sigma ** 2)))
+    k = np.exp(-(np.power(x, 2) + np.power(y, 2) +
+               np.power(z, 2)) / (2 * (sigma ** 2)))
     return (k / k.sum()).astype(np.float32)
 
 
@@ -105,7 +106,8 @@ def _convol(arrp, maskp, surf_idx=None, gauss=None):
         i0, j0, k0 = surf_idx[iter]
 
         # HACK: NO PADDING
-        assert hw <= i0 and i0+hw < ni and hw <= j0 and j0+hw < nj and hw <= k0 and k0+hw < nk
+        assert hw <= i0 and i0+hw < ni and hw <= j0 and j0 + \
+            hw < nj and hw <= k0 and k0+hw < nk
 
         sl = (
             slice(w+i0-hw, w+i0+hw, None),
@@ -185,6 +187,8 @@ def get_normal(region):
     assert surf_indices.shape[1] == 3
     normal_smooth = convol(
         normal, surface_mask, surf_idx=surf_indices, width=SMOOTH_WIDTH, sigma=SMOOTH_SIGMA)
+
+    normal_smooth = normalize_normal(normal_smooth)
 
     # Save the normal file.
     save_npy(path, normal_smooth)

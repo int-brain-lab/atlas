@@ -13,7 +13,7 @@ from surface import *
 # Constants
 # ------------------------------------------------------------------------------------------------
 
-ITERATIONS = 100
+ITERATIONS = 10000
 MARGIN = 6
 
 
@@ -106,19 +106,31 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
         m = M[i, j, k]
         # Direction of streamlines: S1 (val=1) ==> S2 (val=3)
         if m == V_S1 or m == V_S2:  # or m == V_Si:  # NOTE: remove the "m == V_Si" part ??
-            # HACK: must redo the math with floating point number normals
-            ni = int(Ni[i, j, k])
-            nj = int(Nj[i, j, k])
-            nk = int(Nk[i, j, k])
+
+            ni = Ni[i, j, k]
+            nj = Nj[i, j, k]
+            nk = Nk[i, j, k]
+
             # Reverse the gradient for one of the surfaces
             if m == V_S2:  # or m == V_Si:
                 ni, nj, nk = -ni, -nj, -nk
 
-            Uout[i, j, k] = (
-                Uout[i+ni, j, k] +
-                Uout[i, j+nj, k] +
-                Uout[i, j, k+nk] +
-                1) / 3.0  # NOTE: or -1??
+            nis = int(cp.sign(ni))
+            njs = int(cp.sign(nj))
+            nks = int(cp.sign(nk))
+            nas = nis + njs + nks
+
+            nia = cp.abs(ni)
+            nja = cp.abs(nj)
+            nka = cp.abs(nk)
+            na = nia + nja + nka
+
+            if nas >= 1:
+                Uout[i, j, k] = (
+                    Uout[i+nis, j, k] * nia +
+                    Uout[i, j+njs, k] * nja +
+                    Uout[i, j, k+nks] * nka
+                    + 1) / na
 
 
 class Runner:
@@ -126,13 +138,13 @@ class Runner:
         n, m, p = mask.shape
         self.shape = (n, m, p)
         assert mask.dtype == np.uint8
-        assert normal.dtype == np.float32
+        # assert normal.dtype == np.float32
         assert normal.shape == self.shape + (3,)
 
         # Compute the bounding box of the mask.
         print("Computing the bounding box of the mask volume...")
         box, (nc, mc, pc) = bounding_box(mask, MARGIN, hemisphere=hemisphere)
-        print(box)
+        # print(box)
 
         assert nc > 0
         assert mc > 0
@@ -166,7 +178,8 @@ class Runner:
             Ua[...] = cp.asarray(U[box])
         else:
             # Initial values: the same as the mask.
-            Ua[...] = mask_gpu
+            Ua[mask_gpu == V_S1] = V_S1
+            Ua[mask_gpu == V_S2] = V_S2
 
         Ub = Ua.copy()
 
@@ -233,9 +246,7 @@ def compute_laplacian():
     assert normal.shape == (N, M, P, 3)
 
     # Load the current result.
-
     U0 = load_npy(filepath(REGION, 'laplacian'))
-    # HACK
     # U0 = None
 
     # Left hemisphere.
@@ -243,16 +254,16 @@ def compute_laplacian():
     Ul = rl.run(ITERATIONS)
     rl.clear()
 
-    # Right hemisphere.
-    rr = Runner(mask, normal, U=U0, hemisphere=+1)
-    Ur = rr.run(ITERATIONS)
+    # # Right hemisphere.
+    # rr = Runner(mask, normal, U=U0, hemisphere=+1)
+    # Ur = rr.run(ITERATIONS)
 
     # Merge the two hemispheres.
-    U = Ul + Ur
+    U = Ul  # + Ur
 
     # Save the result.
-    save_npy(filepath(REGION, 'laplacian_left'), Ul)
-    save_npy(filepath(REGION, 'laplacian_right'), Ur)
+    # save_npy(filepath(REGION, 'laplacian_left'), Ul)
+    # save_npy(filepath(REGION, 'laplacian_right'), Ur)
     save_npy(filepath(REGION, 'laplacian'), U)
 
 
@@ -262,41 +273,3 @@ def compute_laplacian():
 
 if __name__ == '__main__':
     compute_laplacian()
-
-    # U = load_npy(filepath(REGION, 'laplacian'))
-
-    # i0 = 500
-    # fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-
-    # # Colormap scaling.
-    # # Umin, Umax = U.min(), U.max()
-    # q = .001
-    # Umin = np.quantile(U.ravel(), q)
-    # Umax = np.quantile(U.ravel(), 1-q)
-    # norm = Normalize(vmin=Umin, vmax=Umax)
-
-    # ims = ax.imshow(U[i0, :, :], interpolation='none',
-    #                 origin='lower', norm=norm)
-
-    # divider = make_axes_locatable(ax)
-    # cax = divider.append_axes('right', size='5%', pad=0.05)
-    # fig.colorbar(ims, cax=cax, orientation='vertical')
-
-    # axs = plt.axes([0.25, 0.1, 0.65, 0.03])
-    # slider = Slider(
-    #     ax=axs,
-    #     label="i",
-    #     valmin=0,
-    #     valstep=1,
-    #     valmax=N-1,
-    #     valinit=i0,
-    #     orientation="horizontal"
-    # )
-
-    # @slider.on_changed
-    # def update(i):
-    #     i = int(i)
-    #     ims.set_data(U[i, :, :])
-    #     fig.canvas.draw_idle()
-
-    # plt.show()
