@@ -13,7 +13,7 @@ from surface import *
 # Constants
 # ------------------------------------------------------------------------------------------------
 
-ITERATIONS = 10000
+ITERATIONS = 9000
 MARGIN = 6
 
 
@@ -118,7 +118,7 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
             nis = int(cp.sign(ni))
             njs = int(cp.sign(nj))
             nks = int(cp.sign(nk))
-            nas = nis + njs + nks
+            nas = cp.abs(nis) + cp.abs(njs) + cp.abs(nks)
 
             nia = cp.abs(ni)
             nja = cp.abs(nj)
