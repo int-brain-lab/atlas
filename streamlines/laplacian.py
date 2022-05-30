@@ -13,7 +13,8 @@ from surface import *
 # Constants
 # ------------------------------------------------------------------------------------------------
 
-ITERATIONS = 5000
+ITERATIONS = 100
+MARGIN = 6
 
 
 # ------------------------------------------------------------------------------------------------
@@ -28,15 +29,47 @@ def clear_gpu_memory():
     pinned_mempool.free_all_blocks()
 
 
-def bounding_box(mask):
+def bounding_box(mask, margin, hemisphere=0):
+    assert mask.ndim == 3
+    n, m, p = mask.shape
+
     idx = np.nonzero(mask != 0)
-    bounds = np.array([(np.min(idx[i]), np.max(idx[i])) for i in range(3)])
-    margin = 6
+    bounds = np.array(
+        [(np.min(idx[i]), np.max(idx[i])) for i in range(3)], dtype=np.int64)
+
+    # Split hemisphere.
+    if hemisphere == -1:
+        # only keep left hemisphere
+        bounds[2, 1] = p // 2
+    elif hemisphere == +1:
+        # only keep right hemisphere
+        bounds[2, 0] = p // 2
+    # if hemisphere == 0, keep both hemispheres
+
+    # Margin.
+    assert np.all(bounds[:, 0] >= margin)
+    assert np.all(bounds[:, 1] <= np.array([[n, m, p]]) - margin)
+    bounds[:, 0] -= margin
+    bounds[:, 1] += margin
+
+    # Indexing box.
     box = tuple(
-        slice(bounds[i, 0] - margin, bounds[i, 1] + margin, None)
+        slice(bounds[i, 0], bounds[i, 1], None)
         for i in range(3))
-    nc, mc, pc = bounds[:, 1] - bounds[:, 0] + 2 * margin
+
+    nc, mc, pc = bounds[:, 1] - bounds[:, 0]
     return box, (nc, mc, pc)
+
+
+def pad_inplace_3d(arr, margin, value=0):
+    assert arr.ndim == 3
+    arr[:margin, :, :] = value
+    arr[-margin:, :, :] = value
+    arr[:, :margin, :] = value
+    arr[:, -margin:, :] = value
+    arr[:, :, :margin] = value
+    arr[:, :, -margin:] = value
+    return arr
 
 
 @jit.rawkernel()
@@ -72,12 +105,13 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
     if (1 <= i) and (1 <= j) and (1 <= k) and (i <= nc - 2) and (j <= mc - 2) and (k <= pc - 2):
         m = M[i, j, k]
         # Direction of streamlines: S1 (val=1) ==> S2 (val=3)
-        if m == V_S1 or m == V_S2 or m == V_Si:  # NOTE: remove the "m == V_Si" part ??
-            ni = Ni[i, j, k]
-            nj = Nj[i, j, k]
-            nk = Nk[i, j, k]
+        if m == V_S1 or m == V_S2:  # or m == V_Si:  # NOTE: remove the "m == V_Si" part ??
+            # HACK: must redo the math with floating point number normals
+            ni = int(Ni[i, j, k])
+            nj = int(Nj[i, j, k])
+            nk = int(Nk[i, j, k])
             # Reverse the gradient for one of the surfaces
-            if m == V_S2 or m == V_Si:
+            if m == V_S2:  # or m == V_Si:
                 ni, nj, nk = -ni, -nj, -nk
 
             Uout[i, j, k] = (
@@ -88,7 +122,7 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
 
 
 class Runner:
-    def __init__(self, mask, normal, U=None):
+    def __init__(self, mask, normal, U=None, hemisphere=0):
         n, m, p = mask.shape
         self.shape = (n, m, p)
         assert mask.dtype == np.uint8
@@ -97,7 +131,8 @@ class Runner:
 
         # Compute the bounding box of the mask.
         print("Computing the bounding box of the mask volume...")
-        box, (nc, mc, pc) = bounding_box(mask)
+        box, (nc, mc, pc) = bounding_box(mask, MARGIN, hemisphere=hemisphere)
+        print(box)
 
         assert nc > 0
         assert mc > 0
@@ -109,7 +144,8 @@ class Runner:
         # Transfer the pask to the GPU.
         mask_gpu = cp.asarray(mask[box])
 
-        # TODO: split the mask in 2 hemispheres, with padding
+        # Make padding.
+        pad_inplace_3d(mask_gpu, MARGIN)
 
         # Normal.
         size = 3 * nc * mc * pc * 4 / 1024. ** 2
@@ -180,9 +216,9 @@ class Runner:
         del self.mask
         del self.Ua
         del self.Ub
-        del self.normal0_gpu
-        del self.normal1_gpu
-        del self.normal2_gpu
+        del self.normal0
+        del self.normal1
+        del self.normal2
         clear_gpu_memory()
 
 
@@ -197,14 +233,26 @@ def compute_laplacian():
     assert normal.shape == (N, M, P, 3)
 
     # Load the current result.
-    U = load_npy(filepath(REGION, 'laplacian'))
 
-    # GPU Laplacian runner
-    r = Runner(mask, normal, U=U)
+    U0 = load_npy(filepath(REGION, 'laplacian'))
+    # HACK
+    # U0 = None
 
-    # Run X iterations
-    U = r.run(ITERATIONS)
+    # Left hemisphere.
+    rl = Runner(mask, normal, U=U0, hemisphere=-1)
+    Ul = rl.run(ITERATIONS)
+    rl.clear()
 
+    # Right hemisphere.
+    rr = Runner(mask, normal, U=U0, hemisphere=+1)
+    Ur = rr.run(ITERATIONS)
+
+    # Merge the two hemispheres.
+    U = Ul + Ur
+
+    # Save the result.
+    save_npy(filepath(REGION, 'laplacian_left'), Ul)
+    save_npy(filepath(REGION, 'laplacian_right'), Ur)
     save_npy(filepath(REGION, 'laplacian'), U)
 
 
