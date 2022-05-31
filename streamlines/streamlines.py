@@ -109,13 +109,13 @@ def normalize_gradient(grad, threshold=0):
 
 
 def get_gradient(region):
-    path = filepath(region, 'gradient_allen')
+    path = filepath(region, 'gradient')
     gradient = load_npy(path)
     if gradient is not None:
         return gradient
 
     # Load the laplacian to compute the gradient.
-    U = load_npy(filepath(region, 'laplacian_allen'))
+    U = load_npy(filepath(region, 'laplacian'))
     if U is None:
         # TODO: compute the laplacian with code in streamlines.py
         raise NotImplementedError()

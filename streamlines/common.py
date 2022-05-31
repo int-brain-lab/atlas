@@ -31,10 +31,10 @@ CCF_PATH = Path("../ccf_2017/").resolve()
 
 # Values used in the nrrd mask
 V_OUTSIDE = 0
-V_S1 = 1
+V_S1 = 1  # outer surface
 V_VOLUME = 2
-V_S2 = 3
-V_Si = 4
+V_S2 = 3  # inter surface
+V_Si = 4  # intermediate surfaces
 
 REGION = 'isocortex'
 REGION_ID = 315

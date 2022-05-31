@@ -13,7 +13,7 @@ from surface import *
 # Constants
 # ------------------------------------------------------------------------------------------------
 
-ITERATIONS = 9000
+ITERATIONS = 100_000
 MARGIN = 6
 
 
@@ -105,14 +105,18 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
     if (1 <= i) and (1 <= j) and (1 <= k) and (i <= nc - 2) and (j <= mc - 2) and (k <= pc - 2):
         m = M[i, j, k]
         # Direction of streamlines: S1 (val=1) ==> S2 (val=3)
-        if m == V_S1 or m == V_S2:  # or m == V_Si:  # NOTE: remove the "m == V_Si" part ??
+        if m == V_S1 or m == V_S2 or m == V_Si:
+
+            v = 1
+            if m == V_Si:
+                v = 0
 
             ni = Ni[i, j, k]
             nj = Nj[i, j, k]
             nk = Nk[i, j, k]
 
             # Reverse the gradient for one of the surfaces
-            if m == V_S2:  # or m == V_Si:
+            if m == V_S1:
                 ni, nj, nk = -ni, -nj, -nk
 
             nis = int(cp.sign(ni))
@@ -130,7 +134,7 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
                     Uout[i+nis, j, k] * nia +
                     Uout[i, j+njs, k] * nja +
                     Uout[i, j, k+nks] * nka
-                    + 1) / na
+                    + v) / na
 
 
 class Runner:
@@ -144,7 +148,6 @@ class Runner:
         # Compute the bounding box of the mask.
         print("Computing the bounding box of the mask volume...")
         box, (nc, mc, pc) = bounding_box(mask, MARGIN, hemisphere=hemisphere)
-        # print(box)
 
         assert nc > 0
         assert mc > 0
@@ -178,8 +181,8 @@ class Runner:
             Ua[...] = cp.asarray(U[box])
         else:
             # Initial values: the same as the mask.
-            Ua[mask_gpu == V_S1] = V_S1
-            Ua[mask_gpu == V_S2] = V_S2
+            Ua[mask_gpu == V_S1] = 0
+            Ua[mask_gpu == V_S2] = 1
 
         Ub = Ua.copy()
 
@@ -247,19 +250,19 @@ def compute_laplacian():
 
     # Load the current result.
     U0 = load_npy(filepath(REGION, 'laplacian'))
-    # U0 = None
+    # U0 = None  # HACK: restart from scratch
 
     # Left hemisphere.
     rl = Runner(mask, normal, U=U0, hemisphere=-1)
     Ul = rl.run(ITERATIONS)
     rl.clear()
 
-    # # Right hemisphere.
-    # rr = Runner(mask, normal, U=U0, hemisphere=+1)
-    # Ur = rr.run(ITERATIONS)
+    # Right hemisphere.
+    rr = Runner(mask, normal, U=U0, hemisphere=+1)
+    Ur = rr.run(ITERATIONS)
 
     # Merge the two hemispheres.
-    U = Ul  # + Ur
+    U = Ul + Ur
 
     # Save the result.
     # save_npy(filepath(REGION, 'laplacian_left'), Ul)
