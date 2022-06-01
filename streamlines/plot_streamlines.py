@@ -262,7 +262,7 @@ paths_allen = load_npy(filepath(REGION, 'streamlines_allen'))
 paths_ibl = load_npy(filepath(REGION, 'streamlines_ibl'))
 
 # Subset the paths.
-max_paths = 50_000
+max_paths = 100_000
 paths_allen = subset(paths_allen, max_paths)
 paths_ibl = subset(paths_ibl, max_paths)
 

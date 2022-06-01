@@ -6,6 +6,7 @@
 # ------------------------------------------------------------------------------------------------
 
 from common import *
+from gradient import *
 
 from scipy.interpolate import interpn
 from scipy.interpolate import interp1d
@@ -15,9 +16,6 @@ from scipy.interpolate import interp1d
 # Constants
 # ------------------------------------------------------------------------------------------------
 
-REGION = 'isocortex'
-REGION_ID = 315
-N, M, P = 1320, 800, 1140
 PATH_LEN = 100
 MAX_POINTS = None
 MAX_ITER = 500
@@ -41,101 +39,6 @@ def subset(paths, max_paths=None):
     n = paths.shape[0]
     k = max(1, int(math.floor(float(n) / float(max_paths))))
     return np.array(paths[::k, ...])
-
-
-# ------------------------------------------------------------------------------------------------
-# Gradient
-# ------------------------------------------------------------------------------------------------
-
-def compute_grad(mask, U):
-    n, m, p = mask.shape
-
-    # Find the surface.
-    i, j, k = np.nonzero(np.isin(mask, (V_S1, V_S2, V_Si)))
-    surf = np.zeros((n, m, p), dtype=bool)
-    surf[i, j, k] = True
-    iv, jv, kv = np.nonzero(mask == V_VOLUME)
-
-    # Clip the laplacian.
-    q = .9999
-    Uclip = np.clip(U, U.min(), np.quantile(U, q))
-
-    # Compute the gradient inside the volume.
-    grad = np.zeros((n, m, p, 3), dtype=np.float32)
-    grad[iv, jv, kv, 0] = .5 * (Uclip[iv+1, jv, kv] - Uclip[iv-1, jv, kv])
-    grad[iv, jv, kv, 1] = .5 * (Uclip[iv, jv+1, kv] - Uclip[iv, jv-1, kv])
-    grad[iv, jv, kv, 2] = .5 * (Uclip[iv, jv, kv+1] - Uclip[iv, jv, kv-1])
-
-    # Compute the gradient on the surface.
-    idx = mask[i+1, j, k] == V_VOLUME
-    grad[i[idx], j[idx], k[idx], 0] = Uclip[
-        i[idx]+1, j[idx], k[idx]] - Uclip[i[idx], j[idx], k[idx]]
-
-    idx = mask[i-1, j, k] == V_VOLUME
-    grad[i[idx], j[idx], k[idx], 0] = Uclip[
-        i[idx], j[idx], k[idx]] - Uclip[i[idx]-1, j[idx], k[idx]]
-
-    idx = mask[i, j+1, k] == V_VOLUME
-    grad[i[idx], j[idx], k[idx], 1] = Uclip[
-        i[idx], j[idx]+1, k[idx]] - Uclip[i[idx], j[idx], k[idx]]
-
-    idx = mask[i, j-1, k] == V_VOLUME
-    grad[i[idx], j[idx], k[idx], 1] = Uclip[
-        i[idx], j[idx], k[idx]] - Uclip[i[idx], j[idx]-1, k[idx]]
-
-    idx = mask[i, j, k+1] == V_VOLUME
-    grad[i[idx], j[idx], k[idx], 2] = Uclip[
-        i[idx], j[idx], k[idx]+1] - Uclip[i[idx], j[idx], k[idx]]
-
-    idx = mask[i, j, k-1] == V_VOLUME
-    grad[i[idx], j[idx], k[idx], 2] = Uclip[
-        i[idx], j[idx], k[idx]] - Uclip[i[idx], j[idx], k[idx]-1]
-
-    return grad
-
-
-def normalize_gradient(grad, threshold=0):
-    # Normalize the gradient.
-    gradn = np.linalg.norm(grad, axis=3)
-
-    idx = gradn > threshold
-    grad[idx] /= gradn[idx, np.newaxis]
-
-    # Kill gradient vectors that are too small.
-    if threshold > 0:
-        grad[~idx] = 0
-
-    return grad
-
-
-def get_gradient(region):
-    path = filepath(region, 'gradient')
-    gradient = load_npy(path)
-    if gradient is not None:
-        return gradient
-
-    # Load the laplacian to compute the gradient.
-    U = load_npy(filepath(region, 'laplacian'))
-    if U is None:
-        # TODO: compute the laplacian with code in streamlines.py
-        raise NotImplementedError()
-    assert U.ndim == 3
-
-    # Load the mask.
-    mask = load_npy(filepath(region, 'mask'))
-
-    # Compute the gradient.
-    gradient = compute_grad(mask, U)
-    assert gradient.ndim == 4
-
-    # Normalize the gradient.
-    gradient = normalize_gradient(gradient)
-
-    # Save the gradient.
-    save_npy(path, gradient)
-
-    del gradient
-    return load_npy(path)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -168,8 +71,7 @@ def integrate_step(pos, step, gradient, xyz):
     return pos - step * g
 
 
-def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=0):
-    # , stay_in_volume=False):
+def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, stay_in_volume=True):
     assert pos.ndim == 2
     n_paths = pos.shape[0]
     assert pos.shape == (n_paths, 3)
@@ -191,18 +93,15 @@ def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=0):
     for iter in tqdm(range(1, max_iter), desc="Integrating..."):
         prev = out[kept, iter - 1, :]
         out[kept, iter, :] = integrate_step(prev, step, gradient, xyz)
-        # if not stay_in_volume:
-        #     continue
-
-        # # Stop integrating the paths the go outside of the volume.
-        # # get the masks on the current positions
-        # pos_grid[:] = out[:, iter, :]
-        # i, j, k = pos_grid.T
-        # kept = mask[i, j, k] != 0
-        # assert kept.shape == (n_paths,)
-        # n_kept = kept.sum()
-        # if n_kept == 0:
-        #     break
+        if stay_in_volume:
+            # Stop integrating the paths the go outside of the volume.
+            pos_grid[:] = out[:, iter, :]
+            i, j, k = pos_grid.T
+            kept = mask[i, j, k] != 0
+            assert kept.shape == (n_paths,)
+            n_kept = kept.sum()
+            if n_kept == 0:
+                break
 
     return out
 
@@ -211,7 +110,7 @@ def path_lengths(paths):
     print("Computing the path lengths...")
     streamlines = paths
     n_paths, path_len, _ = streamlines.shape
-    d = np.abs(np.diff(paths, axis=1)).max(axis=2)
+    d = np.abs(np.diff(paths, axis=1)).max(axis=2) > 1e-3
     ln = last_nonzero(d, 1)
     assert ln.shape == (n_paths,)
     return ln
@@ -254,7 +153,7 @@ def compute_streamlines(region, init_points=None):
 
     # Integrate the gradient field from those positions.
     paths = integrate_field(
-        init_points, STEP, gradient, mask, max_iter=MAX_ITER)
+        init_points, STEP, gradient, np.isin(mask, (V_S2, V_Si, V_VOLUME)), max_iter=MAX_ITER)
 
     # Resample the paths.
     streamlines = resample_paths(paths, num=PATH_LEN)
