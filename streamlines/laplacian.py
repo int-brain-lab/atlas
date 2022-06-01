@@ -13,7 +13,7 @@ from surface import *
 # Constants
 # ------------------------------------------------------------------------------------------------
 
-ITERATIONS = 100_000
+ITERATIONS = 40_000 # 50_000
 MARGIN = 6
 
 
@@ -105,7 +105,7 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
     if (1 <= i) and (1 <= j) and (1 <= k) and (i <= nc - 2) and (j <= mc - 2) and (k <= pc - 2):
         m = M[i, j, k]
         # Direction of streamlines: S1 (val=1) ==> S2 (val=3)
-        if m == V_S1 or m == V_S2 or m == V_Si:
+        if m == V_S2 or m == V_Si:
 
             v = 1
             if m == V_Si:
@@ -134,7 +134,7 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
                     Uout[i+nis, j, k] * nia +
                     Uout[i, j+njs, k] * nja +
                     Uout[i, j, k+nks] * nka
-                    + v) / na
+                    + v) / (na + v)
 
 
 class Runner:
@@ -238,7 +238,7 @@ class Runner:
         clear_gpu_memory()
 
 
-def compute_laplacian():
+def compute_laplacian(both_hemispheres=False):
 
     mask = get_mask(REGION)
     assert mask.ndim == 3
@@ -257,12 +257,15 @@ def compute_laplacian():
     Ul = rl.run(ITERATIONS)
     rl.clear()
 
-    # Right hemisphere.
-    rr = Runner(mask, normal, U=U0, hemisphere=+1)
-    Ur = rr.run(ITERATIONS)
+    if both_hemispheres:
+        # Right hemisphere.
+        rr = Runner(mask, normal, U=U0, hemisphere=+1)
+        Ur = rr.run(ITERATIONS)
 
-    # Merge the two hemispheres.
-    U = Ul + Ur
+        # Merge the two hemispheres.
+        U = Ul + Ur
+    else:
+        U = Ul
 
     # Save the result.
     # save_npy(filepath(REGION, 'laplacian_left'), Ul)
@@ -275,4 +278,4 @@ def compute_laplacian():
 # ------------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    compute_laplacian()
+    compute_laplacian(both_hemispheres=True)

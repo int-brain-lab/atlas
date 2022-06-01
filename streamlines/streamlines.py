@@ -19,7 +19,7 @@ REGION = 'isocortex'
 REGION_ID = 315
 N, M, P = 1320, 800, 1140
 PATH_LEN = 100
-MAX_POINTS = 100000
+MAX_POINTS = None
 MAX_ITER = 500
 STEP = .5
 
@@ -165,7 +165,7 @@ def integrate_step(pos, step, gradient, xyz):
     for i in range(3):
         pos[:, i] = np.clip(pos[:, i], xyz[i][0], xyz[i][-1])
     g = interpn(xyz, gradient, pos)
-    return pos + step * g
+    return pos - step * g
 
 
 def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, res_um=0):
@@ -264,5 +264,5 @@ def compute_streamlines(region, init_points=None):
 
 
 if __name__ == '__main__':
-    get_gradient(REGION)
-    # compute_streamlines(REGION)
+    # get_gradient(REGION)
+    compute_streamlines(REGION)
