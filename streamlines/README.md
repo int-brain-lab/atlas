@@ -91,8 +91,8 @@ We start by defining some notations.
 
 #### General notations
 
-- The 1-norm of a vector $\bold p=(x,y,z)$ is $\|\bold p\|_1 = |x|+|y|+|z|$.
-- The Euclidean norm of a vector $\bold p=(x,y,z)$ is $\|\bold p\|_2^2 = \sqrt{x^2+y^2+z^2}$.
+- The 1-norm of a vector $\mathbf p=(x,y,z)$ is $\lVert\mathbf p\rVert_1 = |x|+|y|+|z|$.
+- The Euclidean norm of a vector $\mathbf p=(x,y,z)$ is $\lVert\mathbf p\rVert_2^2 = \sqrt{x^2+y^2+z^2}$.
 - The gradient of a scalar field $u$ is $\displaystyle\nabla u =\left(\frac{\partial u}{\partial x}, \frac{\partial u}{\partial y}, \frac{\partial u}{\partial z}\right)$.
 - The Laplacian of a scalar field $u$ is $\displaystyle\Delta u =\frac{\partial^2 u}{\partial x^2} + \frac{\partial^2 u}{\partial y^2} + \frac{\partial^2 u}{\partial z^2}$.
 
@@ -126,6 +126,7 @@ We use the Allen CCF coordinate system:
 - $p_z^+ = (i, j, k+1) \in \Omega$ is the neighbor voxel to the right of $p$
 
 For each subset $\mathcal S \subset \Omega$, we define its indicator function $\chi_{\mathcal A}$ as:
+
 $$
 \forall p \in \Omega, \quad \chi_{\mathcal A}(p) = \begin{cases}
 1 & \textrm{if} \quad p \in \mathcal A \\
@@ -136,7 +137,7 @@ $$
 
 #### Mask
 
-The mask $\mu$ is defined as the function $\Omega \longrightarrow \{0,1,2,3,4\}$ that maps every voxel of the volume $\Omega$ to:
+The mask $\mu$ is defined as the function $\Omega \longrightarrow \{ 0,1,2,3,4 \}$ that maps every voxel of the volume $\Omega$ to:
 
 $$
 \forall p \in \Omega, \quad
@@ -168,7 +169,7 @@ $$
 \chi_{\mathcal V}(p_y^+) - \chi_{\mathcal V}(p_y^-) \\
 \chi_{\mathcal V}(p_z^+) - \chi_{\mathcal V}(p_z^-) \\
 \end{pmatrix}
-\in \{-1, 0, +1\}^3
+\in \{ -1, 0, +1 \}^3
 $$
 
 On each axis, the component of the vector $\nu^0(p)$ is +1 if the positive neighbor voxel on that axis belongs to the brain region $\mathcal V$ and the negative neighbor does not, or -1 if that's the reverse, or 0 if neither or both of these neighbors belong to the brain region.
@@ -181,7 +182,7 @@ Once this crude local estimate of the normal vectors to the surfaces is obtained
 
 We define a Gaussian kernel as follows:
 
-$$\forall q \in \mathbb R^3, \quad g_\sigma(q) = \lambda \exp \left(- \frac{\|q\|_2^2}{\sigma^2}\right) \quad \textrm{where $\lambda$ is defined such as} \quad \int g(q) dq=1.$$
+$$\forall q \in \mathbb R^3, \quad g_\sigma(q) = \lambda \exp \left(- \frac{\lVertq\rVert_2^2}{\sigma^2}\right) \quad \textrm{where $\lambda$ is defined such as} \quad \int g(q) dq=1.$$
 
 We smooth the normal with a partial Gaussian convolution on the surface:
 
@@ -195,7 +196,7 @@ Finally, we normalize the normal vectors:
 $$
 \forall p \in \mathcal S, \quad
 \nu(p) = \begin{cases}
-\displaystyle \frac{\widetilde \nu(p)}{\| \widetilde \nu(p) \|_2} & \textrm{if} \quad {\| \widetilde \nu(p) \|_2} > 0\\
+\displaystyle \frac{\widetilde \nu(p)}{\lVert \widetilde \nu(p) \rVert_2} & \textrm{if} \quad {\lVert \widetilde \nu(p) \rVert_2} > 0\\
 0 & \textrm{otherwise}
 \end{cases}
 $$
@@ -253,7 +254,7 @@ $$
 \forall p \in \mathcal S_B \cup \mathcal S_E, \quad
 u^{n+1}(p) =
 \begin{cases}
-\displaystyle\frac{u_x^{n+1}(p) \, |\nu_x(p)| + u_y^{n+1}(p)  \,|\nu_y(p)| + u_z^{n+1}(p)  \,|\nu_z(p)| + k}{|\nu_x(p)| + |\nu_y(p)| + |\nu_z(p)| + k} & \textrm{if} \quad \|\nu^0(p)\|_1 \geq 1\\
+\displaystyle\frac{u_x^{n+1}(p) \\, |\nu_x(p)| + u_y^{n+1}(p)  \,|\nu_y(p)| + u_z^{n+1}(p)  \,|\nu_z(p)| + k}{|\nu_x(p)| + |\nu_y(p)| + |\nu_z(p)| + k} & \textrm{if} \quad \lVert\nu^0(p)\rVert_1 \geq 1\\
 0 & \textrm{otherwise}
 \end{cases}
 $$
@@ -304,7 +305,7 @@ Finally, we normalize the gradient:
 $$
 \forall p \in \mathcal V \cup \mathcal S, \quad
 \nabla u(p) = \begin{cases}
-\displaystyle \frac{\widetilde{\nabla u}(p)}{\| \widetilde{\nabla u}(p) \|_2} & \textrm{if} \quad {\| \widetilde{\nabla u}(p) \|_2} > 0\\
+\displaystyle \frac{\widetilde{\nabla u}(p)}{\lVert \widetilde{\nabla u}(p) \rVert_2} & \textrm{if} \quad {\lVert \widetilde{\nabla u}(p) \rVert_2} > 0\\
 0 & \textrm{otherwise}
 \end{cases}
 $$
