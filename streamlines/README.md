@@ -311,7 +311,9 @@ $$
 
 ### Step 4. Streamlines
 
-- solve the following differential equation with initial conditions
+To compute streamlines, we start from voxels in the bottom surface and we integrate the Laplace's equation's solution's gradient.
+
+More precisely, we solve the following ordinary differential equation (ODE):
 
 $$
 \forall t \geq 0, \forall p \in \mathcal S_B, \quad
@@ -328,12 +330,15 @@ $$
 \end{cases}
 $$
 
+#### Numerical integration
 
-- euler first order numerical scheme
-- linear interpolation between voxels
-- stop integration when paths go outside the volume
-- resampling
+We use the forward Euler method to integrate this ODE numerically.
 
+At every time step, we use a linear interpolation to estimate the gradient at a position between voxels.
+
+We also stop the integration for streamlines that go beyond the volume $\mathcal V$.
+
+Finally, once obtained, we resample the streamlines to reparametrize them in 100 steps.
 
 TODO: screenshot of 2D and 3D streamlines
 
