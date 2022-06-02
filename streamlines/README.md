@@ -144,7 +144,7 @@ $$
 \mu(p) = \begin{cases}
 0 & \textrm{if} \quad p \not\in \mathcal V \cup \mathcal S \\
 v_t = 1 & \textrm{if} \quad p \in \mathcal S_T \\
-v = 2 & \textrm{if} \quad p \in \mathcal V \\
+v_v = 2 & \textrm{if} \quad p \in \mathcal V \\
 v_b = 3 & \textrm{if} \quad p \in \mathcal S_B \\
 v_e = 4 & \textrm{if} \quad p \in \mathcal S_E \\
 \end{cases}
@@ -182,7 +182,7 @@ Once this crude local estimate of the normal vectors to the surfaces is obtained
 
 We define a Gaussian kernel as follows:
 
-$$\forall q \in \mathbb R^3, \quad g_\sigma(q) = \lambda \exp \left(- \frac{\lVert q\rVert_2^2}{\sigma^2}\right) \quad \textrm{where $\lambda$ is defined such as} \quad \int g(q) dq=1.$$
+$$\forall q \in \mathbb R^3, \quad g_\sigma(q) = \lambda \exp \left(- \frac{\lVert q\rVert_2^2}{\sigma^2}\right) \quad \textrm{where $\lambda$ is defined such as} \quad \int_{\mathbb R^3} g(q) dq=1.$$
 
 We smooth the normal with a partial Gaussian convolution on the surface:
 
