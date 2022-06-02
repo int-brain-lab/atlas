@@ -142,7 +142,7 @@ The mask $\mu$ is defined as the function $\Omega \longrightarrow \\{ 0,1,2,3,4 
 $$
 \forall p \in \Omega, \quad
 \mu(p) = \begin{cases}
-0 & \textrm{if} \quad p \not\in \mathcal V \\
+0 & \textrm{if} \quad p \not\in \mathcal V \cup \mathcal S \\
 v_t = 1 & \textrm{if} \quad p \in \mathcal S_T \\
 v = 2 & \textrm{if} \quad p \in \mathcal V \\
 v_b = 3 & \textrm{if} \quad p \in \mathcal S_B \\
@@ -182,7 +182,7 @@ Once this crude local estimate of the normal vectors to the surfaces is obtained
 
 We define a Gaussian kernel as follows:
 
-$$\forall q \in \mathbb R^3, \quad g_\sigma(q) = \lambda \exp \left(- \frac{\lVertq\rVert_2^2}{\sigma^2}\right) \quad \textrm{where $\lambda$ is defined such as} \quad \int g(q) dq=1.$$
+$$\forall q \in \mathbb R^3, \quad g_\sigma(q) = \lambda \exp \left(- \frac{\lVert q\rVert_2^2}{\sigma^2}\right) \quad \textrm{where $\lambda$ is defined such as} \quad \int g(q) dq=1.$$
 
 We smooth the normal with a partial Gaussian convolution on the surface:
 
@@ -282,7 +282,7 @@ TODO: screenshot of laplacian
 
 Once the solution of Laplace's equation has been obtained, we can estimate its gradient that will be used to integrate the streamlines in Step 4.
 
-We use central, forward, or backward differences for the numerical scheme of the derivate of $u$ depending on whether the voxel is inside the volume or on the surface, and depending on the relative position of the voxel compared to the volume (which is encoded in $\nu^0(p)$).
+We use central, forward, or backward differences for the numerical scheme of the derivative of $u$ depending on whether the voxel is inside the volume or on the surface, and depending on the relative position of the voxel compared to the volume (which is encoded in $\nu^0(p)$).
 
 We get:
 
@@ -315,6 +315,12 @@ $$
 To compute streamlines, we start from voxels in the bottom surface and we integrate the Laplace's equation's solution's gradient.
 
 More precisely, we solve the following ordinary differential equation (ODE):
+
+$$
+\forall p \in \mathcal S_B, \quad \phi_p : \mathbb R_+ \longrightarrow \Omega
+$$
+
+satisfies:
 
 $$
 \forall t \geq 0, \forall p \in \mathcal S_B, \quad
