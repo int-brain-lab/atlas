@@ -254,7 +254,7 @@ $$
 \forall p \in \mathcal S_B \cup \mathcal S_E, \quad
 u^{n+1}(p) =
 \begin{cases}
-\displaystyle\frac{u_x^{n+1}(p) \\, |\nu_x(p)| + u_y^{n+1}(p)  \,|\nu_y(p)| + u_z^{n+1}(p)  \,|\nu_z(p)| + k}{|\nu_x(p)| + |\nu_y(p)| + |\nu_z(p)| + k} & \textrm{if} \quad \lVert\nu^0(p)\rVert_1 \geq 1\\
+\displaystyle\frac{u_x^{n+1}(p) \\, |\nu_x(p)| + u_y^{n+1}(p)  \\, |\nu_y(p)| + u_z^{n+1}(p)  \\, |\nu_z(p)| + k}{|\nu_x(p)| + |\nu_y(p)| + |\nu_z(p)| + k} & \textrm{if} \quad \lVert\nu^0(p)\rVert_1 \geq 1\\
 0 & \textrm{otherwise}
 \end{cases}
 $$
@@ -292,9 +292,9 @@ $$
 \begin{cases}
 \displaystyle
 \frac{u_x(p_x^+) + u_x(p_x^-)}{2} & \textrm{if} \quad p \in \mathcal V\\
-u_x(p_x^+) - u_x(p) & \textrm{if} \quad p \in \mathcal S, \, \nu^0(p)=+1\\
-u_x(p) - u_x(p_x^-) & \textrm{if} \quad p \in \mathcal S, \, \nu^0(p)=-1\\
-0 & \textrm{if} \quad p \in \mathcal S, \, \nu^0(p)=0\\
+u_x(p_x^+) - u_x(p) & \textrm{if} \quad p \in \mathcal S, \\, \nu^0(p)=+1\\
+u_x(p) - u_x(p_x^-) & \textrm{if} \quad p \in \mathcal S, \\, \nu^0(p)=-1\\
+0 & \textrm{if} \quad p \in \mathcal S, \\, \nu^0(p)=0\\
 \end{cases}
 $$
 
