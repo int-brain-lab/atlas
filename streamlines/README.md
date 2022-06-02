@@ -92,7 +92,7 @@ We start by defining some notations.
 #### General notations
 
 - The 1-norm of a vector $\mathbf p=(x,y,z)$ is $\lVert\mathbf p\rVert_1 = |x|+|y|+|z|$.
-- The Euclidean norm of a vector $\mathbf p=(x,y,z)$ is $\lVert\mathbf p\rVert_2^2 = \sqrt{x^2+y^2+z^2}$.
+- The Euclidean norm of a vector $\mathbf p=(x,y,z)$ is $\lVert\mathbf p\rVert_2 = \sqrt{x^2+y^2+z^2}$.
 - The gradient of a scalar field $u$ is $\displaystyle\nabla u =\left(\frac{\partial u}{\partial x}, \frac{\partial u}{\partial y}, \frac{\partial u}{\partial z}\right)$.
 - The Laplacian of a scalar field $u$ is $\displaystyle\Delta u =\frac{\partial^2 u}{\partial x^2} + \frac{\partial^2 u}{\partial y^2} + \frac{\partial^2 u}{\partial z^2}$.
 
@@ -137,7 +137,7 @@ $$
 
 #### Mask
 
-The mask $\mu$ is defined as the function $\Omega \longrightarrow \{ 0,1,2,3,4 \}$ that maps every voxel of the volume $\Omega$ to:
+The mask $\mu$ is defined as the function $\Omega \longrightarrow \\{ 0,1,2,3,4 \\}$ that maps every voxel of the volume $\Omega$ to:
 
 $$
 \forall p \in \Omega, \quad
@@ -169,7 +169,7 @@ $$
 \chi_{\mathcal V}(p_y^+) - \chi_{\mathcal V}(p_y^-) \\
 \chi_{\mathcal V}(p_z^+) - \chi_{\mathcal V}(p_z^-) \\
 \end{pmatrix}
-\in \{ -1, 0, +1 \}^3
+\in \\{ -1, 0, +1 \\}^3
 $$
 
 On each axis, the component of the vector $\nu^0(p)$ is +1 if the positive neighbor voxel on that axis belongs to the brain region $\mathcal V$ and the negative neighbor does not, or -1 if that's the reverse, or 0 if neither or both of these neighbors belong to the brain region.
