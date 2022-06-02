@@ -213,10 +213,10 @@ Mathematically, the goal is to solve the following partial differential equation
 
 $$
 \begin{align*}
-\Delta u &= 0 & \textrm{on} \quad \mathcal V\\
-u &= 0 & \textrm{on} \quad \mathcal S_T\\
-\nabla u \cdot \nu &= 1 & \textrm{on} \quad \mathcal S_B\\
-\nabla u \cdot \nu &= 0 & \textrm{on} \quad \mathcal S_E\\
+\Delta u            &= 0 & \textrm{on} \quad & \mathcal V\\
+u                   &= 0 & \textrm{on} \quad & \mathcal S_T\\
+\nabla u \cdot \nu  &= 1 & \textrm{on} \quad & \mathcal S_B\\
+\nabla u \cdot \nu  &= 0 & \textrm{on} \quad & \mathcal S_E\\
 \end{align*}
 $$
 
