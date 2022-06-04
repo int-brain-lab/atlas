@@ -125,7 +125,7 @@ We use the Allen CCF coordinate system:
 - $p_z^- = (i, j, k-1) \in \Omega$ is the neighbor voxel to the left of $p$
 - $p_z^+ = (i, j, k+1) \in \Omega$ is the neighbor voxel to the right of $p$
 
-For each subset $\mathcal S \subset \Omega$, we define its indicator function $\chi_{\mathcal A}$ as:
+For each subset $\mathcal A \subset \Omega$, we define its indicator function $\chi_{\mathcal A}$ as:
 
 $$
 \forall p \in \Omega, \quad \chi_{\mathcal A}(p) = \begin{cases}
@@ -150,16 +150,16 @@ v_e = 4 & \textrm{if} \quad p \in \mathcal S_E \\
 \end{cases}
 $$
 
-> **Implementation notes:** The mask $\mu$ is stored in `mask.npy` that is computed in the first step below, from the input nrrd files. This file is a 3D array with shape `(N, M, P)` and a data type `uint8`.
+> **Implementation notes:** The mask $\mu$ is stored in `mask.npy` that is computed in the first step below, from the input nrrd files. This file is a 3D array with shape `(N, M, P)` and data type `uint8`.
 
 
 ### Step 1. Surface normal
 
-The first step is to estimate the normal to the surface for every voxel of each of the three surfaces. The normals will be used as boundary conditions when simulating the partial differential equation in Step 2.
+The first step is to estimate the normal to the surface of every voxel of the surface. The normals will be used as boundary conditions when simulating the partial differential equation in Step 2.
 
 #### Crude local estimatation
 
-With the $\chi_{\mathcal V}$ indicator function of the brain region, and the neighbor voxels, we can make a first estimation of the surface normal at each voxel belonging to one of the surfaces:
+We can make a first estimation of the surface normals thanks to the $\chi_{\mathcal V}$ indicator function of the brain region:
 
 $$
 \forall p \in \mathcal S, \quad
@@ -178,13 +178,13 @@ TODO: screenshot of surface normal
 
 #### Gaussian smoothing
 
-Once this crude local estimate of the normal vectors to the surfaces is obtained, we can smooth it and normalize it to improve the accuracy of the boundary conditions in Step 2.
+Once this crude local estimate is obtained, we can smooth it and normalize it to improve the accuracy of the boundary conditions in Step 2.
 
 We define a Gaussian kernel as follows:
 
-$$\forall q \in \mathbb R^3, \quad g_\sigma(q) = \lambda \exp \left(- \frac{\lVert q\rVert_2^2}{\sigma^2}\right) \quad \textrm{where $\lambda$ is defined such as} \quad \int_{\mathbb R^3} g(q) dq=1.$$
+$$\forall \sigma > 0, \\, \forall q \in \mathbb R^3, \quad g_\sigma(q) = \lambda \exp \left(- \frac{\lVert q\rVert_2^2}{\sigma^2}\right) \quad \textrm{where $\lambda$ is defined such as} \quad \int_{\mathbb R^3} g(q) dq=1.$$
 
-We smooth the normal with a partial Gaussian convolution on the surface:
+We smooth the crude normal estimate with a partial Gaussian convolution on the surface:
 
 $$
 \forall p \in \mathcal S, \quad
@@ -207,9 +207,9 @@ TODO: screenshot of surface normal
 
 ### Step 2. Laplacian
 
-Step 2 is the most complex and computationally intensive step of the process. It requires a GPU to be tractable on the 10 $\mu$m atlas.
+Step 2 is the most complex and computationally intensive step of the process. It requires a GPU to be tractable on the 10 $\mu\textm{m}$ atlas.
 
-Mathematically, the goal is to solve the following partial differential equation (PDE) with a mixture of Dirichlet and Neumann boundary conditions:
+Mathematically, the goal is to solve the following partial differential equation (PDE), called Laplace's equation, with a mixture of Dirichlet and Neumann boundary conditions:
 
 $$
 \begin{align*}
@@ -224,15 +224,30 @@ $$
 
 An approximate solution of this equation can be obtained with an iterative numerical scheme.
 
-We start from $u_0(p) = \chi_{\mathcal S_B}(p)$, equal to 1 on the bottom surface $\mathcal S_B$, and 0 elsewhere. Then, for $n \geq 0$, we iteratively apply the following scheme to estimate the Laplacian:
+We start from $u_0(p) = \chi_{\mathcal S_B}(p)$, equal to 1 on the bottom surface $\mathcal S_B$, and 0 elsewhere. Then, for $n \geq 0$, we iteratively apply a numerical scheme to converge to a solution of the PDE. There are two steps:
+
+1. Update $u^{n+1}$ on $\mathcal V$.
+2. Update $u^{n+1}$ on $\mathcal S$.
+
+##### Updating the scalar field on the volume
+
+On $\mathcal V$, we use the following equation:
 
 $$\forall p \in \mathcal V, \quad u^{n+1}(p) = \frac{u^n(p_x^+) + u^n(p_x^-) + u^n(p_y^+) + u^n(p_y^-) + u^n(p_z^+) + u^n(p_z^-)}{6}$$
 
-We need to use another numerical scheme on the surface boundaries to take into account the boundary conditions, which allow us to compute $u^{n+1}(p)$ on the surfaces.
+##### Updating the scalar field on the boundary surface
 
-On $\mathcal S_T$, we just use $u^{n+1}(p) = 0$ for the Dirichlet boundary condition.
+On $\mathcal S$, we need to take into account the boundary conditions.
 
-On $\mathcal S_B$ and $\mathcal S_E$, we need to implement the Neuman boundary conditions. We use central, forward, or backward finite difference schemes for $\nabla u(p)$ depending on the value of each $x$, $y$, $z$ component of the crude normal vector $\nu^0(p)$.
+* On $\mathcal S_T$, we just use the following equation for the Dirichlet boundary condition:
+
+$$\forall p \in \mathcal S_T, \quad u^{n+1}(p) = 0$$
+
+* On $\mathcal S_B$ and $\mathcal S_E$, we need to implement the Neuman boundary conditions as explained below.
+
+##### Neuman boundary conditions
+
+We use central, forward, or backward finite difference schemes for $\nabla u(p)$ depending on the value of each $x$, $y$, $z$ component of the crude normal vector $\nu^0(p)$.
 
 We note $k=1$ for $\mathcal S_B$, and $k=0$ for $\mathcal S_E$. We also define:
 
@@ -265,11 +280,11 @@ We wrote a GPU implementation with the Cupy Python package leveraging the NVIDIA
 
 - We use two CUDA kernels: one for the numerical scheme in the brain region $\mathcal V$, another for the one on the surfaces $\mathcal S_B$ and $\mathcal S_E$ (Neumann conditions). Every iteration involves a call to both kernels.
 
-- We use two 3D arrays for the Laplacian, `U_1` and `U_2`. The CUDA kernels use one array for reading the old values ($u^n$), another one for writing the new values ($u^{n+1}$). At the next iteration, we swap `U_1` and `U_2`.
+- We use two 3D arrays for the Laplacian, `U_1` and `U_2`. The CUDA kernels use one array to read the old values ($u^n$), another one to write the new values ($u^{n+1}$). At each iteration, we swap `U_1` and `U_2`.
 
 - To avoid using too much GPU memory (there are wide empty spaces around a given brain region $\mathcal V$), we compute the axis boundaries of the mask array and we pad each side with a few voxels.
 
-- To ensure all arrays fit in memory, we cut the brain in half (two hemispheres), which is possible as long as the streamlines are not expected to cross the sagittal midline within the brain region.
+- To ensure all arrays fit in GPU memory, we cut the brain in half (two hemispheres), which is possible as long as the streamlines are not expected to cross the sagittal midline within the brain region.
 
 - We achieve about 1000 iterations per minute on an NVIDIA Geforce RTX 2070 SUPER.
 
@@ -291,9 +306,9 @@ $$
 \widetilde{\nabla u}_x(p) =
 \begin{cases}
 \displaystyle
-\frac{u_x(p_x^+) + u_x(p_x^-)}{2} & \textrm{if} \quad p \in \mathcal V\\
-u_x(p_x^+) - u_x(p) & \textrm{if} \quad p \in \mathcal S, \\, \nu^0(p)=+1\\
-u_x(p) - u_x(p_x^-) & \textrm{if} \quad p \in \mathcal S, \\, \nu^0(p)=-1\\
+\frac{u(p_x^+) + u(p_x^-)}{2} & \textrm{if} \quad p \in \mathcal V\\
+u(p_x^+) - u(p) & \textrm{if} \quad p \in \mathcal S, \\, \nu^0(p)=+1\\
+u(p) - u(p_x^-) & \textrm{if} \quad p \in \mathcal S, \\, \nu^0(p)=-1\\
 0 & \textrm{if} \quad p \in \mathcal S, \\, \nu^0(p)=0\\
 \end{cases}
 $$
@@ -312,18 +327,18 @@ $$
 
 ### Step 4. Streamlines
 
-To compute streamlines, we start from voxels in the bottom surface and we integrate the Laplace's equation's solution's gradient.
+To compute streamlines, we start from voxels in the bottom surface $\mathcal S_B$ and we integrate the Laplace's equation's solution's gradient.
 
-More precisely, we solve the following ordinary differential equation (ODE):
+More precisely, we solve an ordinary differential equation (ODE) with
 
 $$
 \forall p \in \mathcal S_B, \quad \phi_p : \mathbb R_+ \longrightarrow \Omega
 $$
 
-satisfies:
+which must satisfy:
 
 $$
-\forall t \geq 0, \forall p \in \mathcal S_B, \quad
+\forall t \geq 0, \\, \forall p \in \mathcal S_B, \quad
 \phi'_p(t) = \nabla u \left( \phi_p(t) \right)
 $$
 
