@@ -174,7 +174,6 @@ $$
 
 On each axis, the component of the vector $\nu^0(p)$ is +1 if the positive neighbor voxel on that axis belongs to the brain region $\mathcal V$ and the negative neighbor does not, or -1 if that's the reverse, or 0 if neither or both of these neighbors belong to the brain region.
 
-TODO: screenshot of surface normal
 
 #### Gaussian smoothing
 
@@ -203,9 +202,9 @@ $$
 
 > **Implementation notes:** this convolution is implemented with nested `for` loops in Python accelerated with JIT compilation using Numba.
 
-TODO: screenshot of surface normal
+![Surface normal](https://user-images.githubusercontent.com/1942359/172404714-8d94234a-394b-4432-bd5f-848344654542.png)
 
-### Step 2. Laplacian
+### Step 2. Numerical solution to Laplace's equation
 
 Step 2 is the most complex and computationally intensive step of the process. It requires a GPU to be tractable on the 10 $\mu\textm{m}$ atlas.
 
@@ -280,7 +279,7 @@ We wrote a GPU implementation with the Cupy Python package leveraging the NVIDIA
 
 - We use two CUDA kernels: one for the numerical scheme in the brain region $\mathcal V$, another for the one on the surfaces $\mathcal S_B$ and $\mathcal S_E$ (Neumann conditions). Every iteration involves a call to both kernels.
 
-- We use two 3D arrays for the Laplacian, `U_1` and `U_2`. The CUDA kernels use one array to read the old values ($u^n$), another one to write the new values ($u^{n+1}$). At each iteration, we swap `U_1` and `U_2`.
+- We use two 3D arrays for the solution to Laplace's equation, `U_1` and `U_2`. The CUDA kernels use one array to read the old values ($u^n$), another one to write the new values ($u^{n+1}$). At each iteration, we swap `U_1` and `U_2`.
 
 - To avoid using too much GPU memory (there are wide empty spaces around a given brain region $\mathcal V$), we compute the axis boundaries of the mask array and we pad each side with a few voxels.
 
@@ -290,7 +289,7 @@ We wrote a GPU implementation with the Cupy Python package leveraging the NVIDIA
 
 - Empirically, a total of 10,000 iterations seems to be necessary for proper convergence of the algorithm.
 
-TODO: screenshot of laplacian
+![Solution to Laplace's equation](https://user-images.githubusercontent.com/1942359/172403287-129520c5-46d2-448a-a576-7505d3c9ad6b.png)
 
 
 ### Step 3. Gradient
@@ -362,7 +361,12 @@ We also stop the integration for streamlines that go beyond the volume $\mathcal
 
 Finally, once obtained, we resample the streamlines to reparametrize them in 100 steps.
 
-TODO: screenshot of 2D and 3D streamlines
+![Streamlines (2D projections)](https://user-images.githubusercontent.com/1942359/172402292-064721a0-293c-47fb-976f-a737af1f288b.png)
+
+![Streamlines (3D)](https://user-images.githubusercontent.com/1942359/172402917-5b832ee8-ce07-41e5-9cb5-86e54cff201e.png)
+
+![Streamlines (3D)](https://user-images.githubusercontent.com/1942359/172403038-db82b161-f595-44a8-9521-110a6d0bbeb5.png)
+
 
 ### Step 5. Flatmaps
 

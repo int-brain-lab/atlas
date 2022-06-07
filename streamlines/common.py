@@ -63,6 +63,7 @@ def filepath(region, fn):
 def load_npy(path):
     """Load an NPY file in memmap read mode."""
     if not path.exists():
+        print(f"Error: file {path} does not exist.")
         return
     print(f"Loading `{path}`.")
     return np.load(path, mmap_mode='r')
