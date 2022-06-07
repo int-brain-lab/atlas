@@ -1,8 +1,8 @@
 # Brain flatmaps generation
 
-This repository describes the methods and provides the Python code to generate brain flatmaps based on the Allen Mouse Brain atlas.
+This repository describes the methods and provides the Python code for generating brain flatmaps based on the Allen Mouse Brain atlas.
 
-This is a reproduction in Python of an existing method developed for the isocortex. This code will run on other regions in the near future.
+This is a Python reimplementation of an existing method developed for the isocortex. This code will run on other regions in the near future.
 
 
 > **Note:** this is a work in progress. Only part of the method (streamlines) has been implemented so far.
@@ -52,7 +52,7 @@ The input files are to put in `input/`, the code will generate output files in `
 
 4. Run `python gradient.py`. This script should create:
 
-    - `regions/isocortex/gradient.npy` (a 3D vector field with the laplacian's gradient)
+    - `regions/isocortex/gradient.npy` (a 3D vector field with the gradient to Laplace's equation's solution)
 
 5. Run `python streamlines.py`. This script should create:
 
@@ -65,7 +65,7 @@ The input files are to put in `input/`, the code will generate output files in `
 Some useful constants are defined in `common.py`, including:
 
 ```python
-# Volume shape.
+# Volume shape for 10um Allen Mouse Brain Atlas.
 N, M, P = 1320, 800, 1140
 
 # Values used in the mask file
@@ -81,9 +81,9 @@ V_SE = 4        # intermediate surfaces
 
 This section describes the method for generating the streamlines and flatmaps.
 
-The general methods consists of computing streamlines between a bottom and top surface around a brain region by solving Laplace's partial differential equation $\Delta u = 0$ inside the brain region, with a combination of Dirichlet and Neumann boundary conditions on the surfaces, and integrating the gradient field $\nabla u$ to link every voxel of the bottom surface to the top surface of the volume.
+The method consists of computing streamlines between a bottom and top surface around a brain region by solving Laplace's partial differential equation $\Delta u = 0$ inside the brain region, with a combination of Dirichlet and Neumann boundary conditions on the surfaces, and integrating the gradient field $\nabla u$ to link every voxel of the bottom surface to a corresponding voxel at the top surface of the volume.
 
-The streamlines allow one to generate flatmaps by mapping every pixel of the flattened surface to an average value along the streamline that starts from that voxel.
+The streamlines allow one to generate flatmaps by mapping every pixel of the flattened surface to an average value along the streamline that starts at that voxel.
 
 ### Notations
 
@@ -125,7 +125,7 @@ We use the Allen CCF coordinate system:
 - $p_z^- = (i, j, k-1) \in \Omega$ is the neighbor voxel to the left of $p$
 - $p_z^+ = (i, j, k+1) \in \Omega$ is the neighbor voxel to the right of $p$
 
-For each subset $\mathcal A \subset \Omega$, we define its indicator function $\chi_{\mathcal A}$ as:
+For each subset $\mathcal A \subset \Omega$, we define its indicator function $\chi_{\mathcal A} : \Omega \longrightarrow \\{0, 1\\}$ as:
 
 $$
 \forall p \in \Omega, \quad \chi_{\mathcal A}(p) = \begin{cases}
@@ -155,9 +155,9 @@ $$
 
 ### Step 1. Surface normal
 
-The first step is to estimate the normal to the surface of every voxel of the surface. The normals will be used as boundary conditions when simulating the partial differential equation in Step 2.
+The first step is to estimate the normal to the surface at every surface voxel. The normals will be used as boundary conditions when simulating the partial differential equation in Step 2.
 
-#### Crude local estimatation
+#### Crude local estimation
 
 We can make a first estimation of the surface normals thanks to the $\chi_{\mathcal V}$ indicator function of the brain region:
 
@@ -177,13 +177,13 @@ On each axis, the component of the vector $\nu^0(p)$ is +1 if the positive neigh
 
 #### Gaussian smoothing
 
-Once this crude local estimate is obtained, we can smooth it and normalize it to improve the accuracy of the boundary conditions in Step 2.
+Once this crude local estimate is obtained, we can smoothen it and normalize it to improve the accuracy of the boundary conditions in Step 2.
 
 We define a Gaussian kernel as follows:
 
 $$\forall \sigma > 0, \\, \forall q \in \mathbb R^3, \quad g_\sigma(q) = \lambda \exp \left(- \frac{\lVert q\rVert_2^2}{\sigma^2}\right) \quad \textrm{where $\lambda$ is defined such as} \quad \int_{\mathbb R^3} g(q) dq=1.$$
 
-We smooth the crude normal estimate with a partial Gaussian convolution on the surface:
+We smoothen the crude normal estimate with a partial Gaussian convolution on the surface:
 
 $$
 \forall p \in \mathcal S, \quad
@@ -206,7 +206,7 @@ $$
 
 ### Step 2. Numerical solution to Laplace's equation
 
-Step 2 is the most complex and computationally intensive step of the process. It requires a GPU to be tractable on the 10 $\mu\textm{m}$ atlas.
+Step 2 is the most complex and computationally intensive step of the process. It requires a GPU to be tractable on the 10 $\mu\textrm{m}$ atlas.
 
 Mathematically, the goal is to solve the following partial differential equation (PDE), called Laplace's equation, with a mixture of Dirichlet and Neumann boundary conditions:
 
@@ -288,6 +288,8 @@ We wrote a GPU implementation with the Cupy Python package leveraging the NVIDIA
 - We achieve about 1000 iterations per minute on an NVIDIA Geforce RTX 2070 SUPER.
 
 - Empirically, a total of 10,000 iterations seems to be necessary for proper convergence of the algorithm.
+
+> Note: an alternative would be to use sparse data structures instead of dense ones, but it would require a bit more work.
 
 ![Solution to Laplace's equation](https://user-images.githubusercontent.com/1942359/172403287-129520c5-46d2-448a-a576-7505d3c9ad6b.png)
 
