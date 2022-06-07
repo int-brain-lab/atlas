@@ -22,6 +22,8 @@ MARGIN = 6
 # ------------------------------------------------------------------------------------------------
 
 def clear_gpu_memory():
+    """Clear GPU memory."""
+
     mempool = cp.get_default_memory_pool()
     pinned_mempool = cp.get_default_pinned_memory_pool()
 
@@ -30,6 +32,8 @@ def clear_gpu_memory():
 
 
 def bounding_box(mask, margin, hemisphere=0):
+    """Computing the bounding box to a volume."""
+
     assert mask.ndim == 3
     n, m, p = mask.shape
 
@@ -62,6 +66,8 @@ def bounding_box(mask, margin, hemisphere=0):
 
 
 def pad_inplace_3d(arr, margin, value=0):
+    """Clear the edges of a 3D array."""
+
     assert arr.ndim == 3
     arr[:margin, :, :] = value
     arr[-margin:, :, :] = value
@@ -74,7 +80,11 @@ def pad_inplace_3d(arr, margin, value=0):
 
 @jit.rawkernel()
 def laplace(Uin, Uout, M, nc, mc, pc):
-    # The 3 arrays M, Uin, Uout have size (nc, mc, pc)
+    """CUDA kernel for the Laplacian inside the volume.
+
+    The 3 arrays Uin, Uout, M (mask) have size (nc, mc, pc).
+
+    """
 
     # Current voxel
     i = 1 + jit.blockIdx.x * jit.blockDim.x + jit.threadIdx.x
@@ -94,7 +104,13 @@ def laplace(Uin, Uout, M, nc, mc, pc):
 
 
 @jit.rawkernel()
-def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
+def neumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
+    """CUDA kernel for the Neumann boundary conditions.
+
+    The 3 arrays Uin, Uout, M (mask) have size (nc, mc, pc).
+
+    """
+
     # The 3 arrays M, Uin, Uout have size (nc, mc, pc)
 
     # Current voxel
@@ -104,20 +120,20 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
 
     if (1 <= i) and (1 <= j) and (1 <= k) and (i <= nc - 2) and (j <= mc - 2) and (k <= pc - 2):
         m = M[i, j, k]
-        # Direction of streamlines: S1 (val=1) ==> S2 (val=3)
-        if m == V_S2 or m == V_Si:
+        # Direction of streamlines: S_outer (val=1) ==> S_inner (val=3)
+        if m == V_SB or m == V_SE:
 
             v = 1
-            if m == V_Si:
+            if m == V_SE:
                 v = 0
 
             ni = Ni[i, j, k]
             nj = Nj[i, j, k]
             nk = Nk[i, j, k]
 
-            # Reverse the gradient for one of the surfaces
-            if m == V_S1:
-                ni, nj, nk = -ni, -nj, -nk
+            # # Reverse the gradient for one of the surfaces
+            # if m == V_ST:
+            #     ni, nj, nk = -ni, -nj, -nk
 
             nis = int(cp.sign(ni))
             njs = int(cp.sign(nj))
@@ -138,6 +154,8 @@ def vonneumann(Uout, M, Ni, Nj, Nk, nc, mc, pc):
 
 
 class Runner:
+    """Run the Laplacian simulation."""
+
     def __init__(self, mask, normal, U=None, hemisphere=0):
         n, m, p = mask.shape
         self.shape = (n, m, p)
@@ -181,8 +199,8 @@ class Runner:
             Ua[...] = cp.asarray(U[box])
         else:
             # Initial values: the same as the mask.
-            Ua[mask_gpu == V_S1] = 0
-            Ua[mask_gpu == V_S2] = 1
+            Ua[mask_gpu == V_ST] = 0
+            Ua[mask_gpu == V_SB] = 1
 
         Ub = Ua.copy()
 
@@ -204,31 +222,36 @@ class Runner:
         self.box = box
 
     def iter(self):
+        """Run two iterations at once."""
+
         # ping-pong between the 2 arrays to avoid edge-effects while computing
         # the Laplacian in parallel on the GPU.
         # NOTE: each Python iteration here is actually made of 2 algorithm iterations
         laplace[self.grid, self.block](self.Ua, self.Ub, self.mask, *self.args)
-        vonneumann[self.grid, self.block](
+        neumann[self.grid, self.block](
             self.Ub, self.mask, self.normal0, self.normal1, self.normal2, *self.args)
 
         laplace[self.grid, self.block](self.Ub, self.Ua, self.mask, *self.args)
-        vonneumann[self.grid, self.block](
+        neumann[self.grid, self.block](
             self.Ua, self.mask, self.normal0, self.normal1, self.normal2, *self.args)
 
     def run(self, iterations):
+        """Run n iterations."""
+
         for i in tqdm(range(iterations)):
             self.iter()
             if i % 10 == 0:
                 cp.cuda.stream.get_current_stream().synchronize()
 
         # Construct the final result.
-        print("Constructing the output array...")
+        print("Constructing the output array on the CPU...")
         Uout = np.zeros(self.shape, dtype=np.float32)
         Uout[self.box] = cp.asnumpy(self.Ua)
 
         return Uout
 
     def clear(self):
+        """Clear the GPU memory."""
         del self.mask
         del self.Ua
         del self.Ub
@@ -239,6 +262,7 @@ class Runner:
 
 
 def compute_laplacian(both_hemispheres=False):
+    """Computing the Laplacian for 1 or 2 hemispheres."""
 
     mask = get_mask(REGION)
     assert mask.ndim == 3

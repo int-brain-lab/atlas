@@ -21,7 +21,10 @@ SMOOTH_SIGMA = 3.0
 # ------------------------------------------------------------------------------------------------
 
 def compute_normal(mask):
-    i, j, k = np.nonzero(np.isin(mask, (V_S1, V_S2, V_Si)))
+    """Compute a crude estimate of the normals to the surface, by looking at the mask values of
+    the neighbor voxels."""
+
+    i, j, k = np.nonzero(np.isin(mask, (V_ST, V_SB, V_SE)))
     vi0 = (mask[i-1, j, k] == V_VOLUME).astype(np.int8)
     vi1 = (mask[i+1, j, k] == V_VOLUME).astype(np.int8)
     vj0 = (mask[i, j-1, k] == V_VOLUME).astype(np.int8)
@@ -54,20 +57,8 @@ def compute_normal(mask):
 # Normal smoothing (Gaussian convolution)
 # ------------------------------------------------------------------------------------------------
 
-
-"""
-Masked convolution:
-
-$$
-\widetilde x[i_0,j_0,k_0,d] = \frac
-    {\sum_{i,j,k} x[i_0-i, j_0-j, k_0-k,d] \cdot m[i_0-i, j_0-j, k_0-k] \cdot g[i,j,k]}
-    {\sum_{i,j,k} m[i_0-i, j_0-j, k_0-k] \cdot g[i,j,k]}
-$$
-"""
-
-
 def gaussian_kernel(size, sigma):
-    """Return N-Dimensional Gaussian Kernel
+    """Return an N-Dimensional Gaussian Kernel.
     @param integer  size  size of kernel / will be round to a nearest odd number
     @param float    sigma standard deviation of gaussian
     https://gist.github.com/tohki/e8803620c2abaa2083f6
@@ -82,6 +73,8 @@ def gaussian_kernel(size, sigma):
 
 @numba.njit()
 def _convol(arrp, maskp, surf_idx=None, gauss=None):
+    """Numba kernel for computing a partial surface 3D convolution."""
+
     # NOTE: arrp and maskp must be padded already
     assert gauss is not None
 
@@ -99,10 +92,10 @@ def _convol(arrp, maskp, surf_idx=None, gauss=None):
     out = np.zeros((ni, nj, nk, nd), dtype=np.float32)
     x = 0
     n = len(surf_idx)
-    print(f"Starting the convolution")
+    print(f"Running the convolution, please wait a few minutes")
     for iter in range(n):
-        if iter % 100000 == 0:
-            print(100 * iter / float(n))
+        # if iter % 100000 == 0:
+        #     print(100 * iter / float(n))
         i0, j0, k0 = surf_idx[iter]
 
         # HACK: NO PADDING
@@ -122,10 +115,12 @@ def _convol(arrp, maskp, surf_idx=None, gauss=None):
                 x = np.sum(arrp[sl + (d,)] * mg)
                 x /= su
                 out[i0, j0, k0, d] = x
+    print(f"Done")
     return out
 
 
 def convol(arr, surf_mask, surf_idx=None, width=6, sigma=1.0):
+    """Smooth a 3D vector field (4D array) with a Gaussian kernel restricted to a surface."""
 
     assert arr.ndim == 4
     assert arr.dtype == np.int8
@@ -158,6 +153,8 @@ def convol(arr, surf_mask, surf_idx=None, width=6, sigma=1.0):
 
 
 def normalize_normal(normal):
+    """Normalize the normals."""
+
     assert normal.ndim == 4
     assert normal.shape[3] == 3
 
@@ -169,6 +166,8 @@ def normalize_normal(normal):
 
 
 def get_normal(region):
+    """Compute (or load from the cache) the normals to the surface of a brain region."""
+
     path = filepath(region, 'normal')
     if path.exists():
         return load_npy(path)
@@ -178,7 +177,7 @@ def get_normal(region):
     normal = compute_normal(mask)
     assert normal.ndim == 4
 
-    surf_vals = (V_S1, V_S2, V_Si)
+    surf_vals = (V_ST, V_SB, V_SE)
     surface_mask = get_surface_mask(region, surf_vals)
     assert surface_mask.ndim == 3
 
@@ -188,6 +187,7 @@ def get_normal(region):
     normal_smooth = convol(
         normal, surface_mask, surf_idx=surf_indices, width=SMOOTH_WIDTH, sigma=SMOOTH_SIGMA)
 
+    print("Normalizing the normals...")
     normal_smooth = normalize_normal(normal_smooth)
 
     # Save the normal file.
@@ -201,31 +201,3 @@ def get_normal(region):
 
 if __name__ == '__main__':
     normal = get_normal(REGION)
-
-    # i0 = 500
-    # fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-
-    # ims = ax.imshow(normal[i0, :, :, 0], interpolation='none', origin='upper')
-
-    # divider = make_axes_locatable(ax)
-    # cax = divider.append_axes('right', size='5%', pad=0.05)
-    # fig.colorbar(ims, cax=cax, orientation='vertical')
-
-    # axs = plt.axes([0.25, 0.1, 0.65, 0.03])
-    # slider = Slider(
-    #     ax=axs,
-    #     label="i",
-    #     valmin=0,
-    #     valstep=1,
-    #     valmax=N-1,
-    #     valinit=i0,
-    #     orientation="horizontal"
-    # )
-
-    # @slider.on_changed
-    # def update(i):
-    #     i = int(i)
-    #     ims.set_data(normal[i, :, :, 0])
-    #     fig.canvas.draw_idle()
-
-    # plt.show()

@@ -16,10 +16,12 @@ from scipy.interpolate import interp1d
 # ------------------------------------------------------------------------------------------------
 
 def compute_grad(mask, U):
+    """Compute the gradient of a 3D scalar field."""
+
     n, m, p = mask.shape
 
     # Find the surface.
-    i, j, k = np.nonzero(np.isin(mask, (V_S1, V_S2, V_Si)))
+    i, j, k = np.nonzero(np.isin(mask, (V_ST, V_SB, V_SE)))
     surf = np.zeros((n, m, p), dtype=bool)
     surf[i, j, k] = True
     iv, jv, kv = np.nonzero(mask == V_VOLUME)
@@ -63,6 +65,8 @@ def compute_grad(mask, U):
 
 
 def normalize_gradient(grad, threshold=0):
+    """Normalize the gradient."""
+
     # Normalize the gradient.
     gradn = np.linalg.norm(grad, axis=3)
 
@@ -77,6 +81,8 @@ def normalize_gradient(grad, threshold=0):
 
 
 def get_gradient(region):
+    """Compute (or load from the cache) the gradient to the solution of Laplace's equation."""
+
     path = filepath(region, 'gradient')
     gradient = load_npy(path)
     if gradient is not None:
@@ -105,6 +111,10 @@ def get_gradient(region):
     del gradient
     return load_npy(path)
 
+
+# ------------------------------------------------------------------------------------------------
+# Entry-point
+# ------------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
     get_gradient(REGION)

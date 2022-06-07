@@ -1,13 +1,13 @@
 # Brain flatmaps generation
 
-This repository describes the methods and provides the Python code for the reproduction of an existing method for generating brain flatmaps based on the Allen Mouse Brain atlas.
+This repository describes the methods and provides the Python code to generate brain flatmaps based on the Allen Mouse Brain atlas.
 
-![](screenshot.png)
+This is a reproduction in Python of an existing method developed for the isocortex. This code will run on other regions in the near future.
+
 
 > **Note:** this is a work in progress. Only part of the method (streamlines) has been implemented so far.
 
-> **Note:** the code has only tested on the isocortex region so far. We plan to run it on other regions.
->
+
 
 ## How to run it
 
@@ -15,9 +15,9 @@ A powerful computer is required to handle the 10um Allen atlas volume.
 
 ### Hardware requirements
 
-- At least 64GB of RAM are recommended.
-- At least 250GB of free space on an SSD.
-- A NVIDIA graphics processing unit (GPU) with at least 8GB of video memory is required.
+- At least 64GB of RAM
+- At least 250GB of free space on an SSD
+- A NVIDIA graphics processing unit (GPU) with at least 8GB of video memory
 
 ### Software requirements
 
@@ -58,7 +58,7 @@ The input files are to put in `input/`, the code will generate output files in `
 
     - `regions/isocortex/streamlines.npy` (a 3D array with N 3D paths of size 100 in the 3D coordinate space of the 10um volume)
 
-6. The next steps for generating the flatmaps using the streamlines are not yet available.
+6. The next steps for generating the flatmaps using the streamlines are not yet implemented.
 
 #### Constants
 

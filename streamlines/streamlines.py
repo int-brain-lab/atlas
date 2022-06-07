@@ -27,6 +27,8 @@ STEP = .5
 # ------------------------------------------------------------------------------------------------
 
 def last_nonzero(arr, axis, invalid_val=-1):
+    """Return the index of the last vector element with a zero."""
+
     # https://stackoverflow.com/a/47269413/1595060
     mask = arr != 0
     val = arr.shape[axis] - np.flip(mask, axis=axis).argmax(axis=axis) - 1
@@ -34,6 +36,8 @@ def last_nonzero(arr, axis, invalid_val=-1):
 
 
 def subset(paths, max_paths=None):
+    """Get a subset of all paths."""
+
     if not max_paths:
         return paths
     n = paths.shape[0]
@@ -46,13 +50,15 @@ def subset(paths, max_paths=None):
 # ------------------------------------------------------------------------------------------------
 
 def init_allen(region):
+    """Use the initial points of the Allen streamlines."""
     return load_npy(filepath(region, 'streamlines_allen'))[:, 0, :]
 
 
 def init_ibl(region):
+    """Use the voxels in the bottom surface as initial points for the streamlines."""
     mask = get_mask(region)
     assert mask.ndim == 3
-    i, j, k = np.nonzero(np.isin(mask, [V_S2]))
+    i, j, k = np.nonzero(np.isin(mask, [V_SB]))
     pos = np.c_[i, j, k]
     return pos
 
@@ -62,6 +68,8 @@ def init_ibl(region):
 # ------------------------------------------------------------------------------------------------
 
 def integrate_step(pos, step, gradient, xyz):
+    """Run one step of the integration process."""
+
     assert pos.ndim == 2
     assert pos.shape[1] == 3
     assert gradient.shape == (N, M, P, 3)
@@ -72,6 +80,8 @@ def integrate_step(pos, step, gradient, xyz):
 
 
 def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, stay_in_volume=True):
+    """Generate streamlines."""
+
     assert pos.ndim == 2
     n_paths = pos.shape[0]
     assert pos.shape == (n_paths, 3)
@@ -107,6 +117,8 @@ def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, stay_in_volume
 
 
 def path_lengths(paths):
+    """Compute the lengths of the streamlines."""
+
     print("Computing the path lengths...")
     streamlines = paths
     n_paths, path_len, _ = streamlines.shape
@@ -117,6 +129,8 @@ def path_lengths(paths):
 
 
 def resample_paths(paths, num=PATH_LEN):
+    """Resample the streamlines."""
+
     n_paths, path_len, _ = paths.shape
     xp = np.linspace(0, 1, num)
     lengths = path_lengths(paths)
@@ -132,6 +146,7 @@ def resample_paths(paths, num=PATH_LEN):
 
 
 def compute_streamlines(region, init_points=None):
+    """Compute (or load from the cache) the streamlines."""
 
     # Load the region mask.
     mask = get_mask(region)
@@ -153,15 +168,18 @@ def compute_streamlines(region, init_points=None):
 
     # Integrate the gradient field from those positions.
     paths = integrate_field(
-        init_points, STEP, gradient, np.isin(mask, (V_S2, V_Si, V_VOLUME)), max_iter=MAX_ITER)
+        init_points, STEP, gradient, np.isin(mask, (V_SB, V_SE, V_VOLUME)), max_iter=MAX_ITER)
 
     # Resample the paths.
     streamlines = resample_paths(paths, num=PATH_LEN)
 
     # Save the streamlines.
-    save_npy(filepath(region, 'streamlines_ibl'), streamlines)
+    save_npy(filepath(region, 'streamlines'), streamlines)
 
+
+# ------------------------------------------------------------------------------------------------
+# Entry-point
+# ------------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    # get_gradient(REGION)
     compute_streamlines(REGION)
