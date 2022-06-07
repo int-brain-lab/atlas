@@ -285,9 +285,11 @@ We wrote a GPU implementation with the Cupy Python package leveraging the NVIDIA
 
 - To ensure all arrays fit in GPU memory, we cut the brain in half (two hemispheres), which is possible as long as the streamlines are not expected to cross the sagittal midline within the brain region.
 
-- We achieve about 1000 iterations per minute on an NVIDIA Geforce RTX 2070 SUPER.
+- We achieve about 1000 iterations per minute on an NVIDIA Geforce RTX 2070 SUPER (for one hemisphere).
 
-- Empirically, a total of 10,000 iterations seems to be necessary for proper convergence of the algorithm.
+- Empirically, a total of 10,000 iterations per hemisphere seems to be necessary for proper convergence of the algorithm.
+
+- In total, the entire method (steps 1-4) should run under one or two hours with a GPU.
 
 > Note: an alternative would be to use sparse data structures instead of dense ones, but it would require a bit more work.
 
