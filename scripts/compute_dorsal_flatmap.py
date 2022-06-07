@@ -19,11 +19,23 @@ dorsal_lookup = f1['view lookup'][:]
 f1.close()
 
 # To compute a 3D volume which is APxML*2x200 we just copy over the paths data into this volume
-dorsal_view_3D = np.zeros((1360,2720,200))
-for api in np.arange(0,dorsal_view_3D.shape[0]):
-    for mli in np.arange(0,dorsal_view_3D.shape[1]):
+# dorsal_view_3D = np.zeros((1360,2720,200))
+# for api in np.arange(0,dorsal_view_3D.shape[0]):
+#     for mli in np.arange(0,dorsal_view_3D.shape[1]):
+#         for depth in np.arange(0,dorsal_view_3D.shape[2]):
+#             dorsal_view_3D[api,mli,depth] = dorsal_paths[dorsal_lookup[api,mli],depth]
+
+# Instead of computing at 10um we will compute at 25um
+dorsal_view_3D_25 = np.zeros((544,1088,80))
+for api in np.arange(0,dorsal_view_3D_25.shape[0]):
+    for mli in np.arange(0,dorsal_view_3D_25.shape[1]):
         for depth in np.arange(0,dorsal_view_3D.shape[2]):
-            dorsal_view_3D[api,mli,depth] = dorsal_paths[dorsal_lookup[api,mli],depth]
+            # get the 10um position from the lookup table
+            path10startIdx = dorsal_lookup[np.round(api*2.5),np.round(mli*2.5)]
+            atlas10idx = dorsal_paths[path10startIdx,np.round(depth*2.5)]
+
+# now we have the linear indices into the 10um atlas, so find the coordinates for each of these and convert these to the 25um coordinates
+# just do this for the top layer
 
 nrrd.write('dorsal_flatmap_3D.nrrd',dorsal_view_3D)
 
