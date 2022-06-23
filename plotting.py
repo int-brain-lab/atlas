@@ -8,6 +8,23 @@ from streamlines import *
 from datoviz import canvas, run, colormap
 
 
+SHOW_ALLEN = True
+MAX_PATHS = 100_000
+
+
+def ibl_streamlines():
+    paths = load_npy(filepath(REGION, 'streamlines'))
+    paths = subset(paths, MAX_PATHS)
+    # paths = paths[:, ::-1, :]
+    return paths
+
+
+def allen_streamlines():
+    paths = load_npy(filepath(REGION, 'streamlines_allen'))
+    paths = subset(paths, MAX_PATHS)
+    return paths
+
+
 def plot_panel(panel, paths):
     assert paths.ndim == 3
     n, l, _ = paths.shape
@@ -23,17 +40,18 @@ def plot_panel(panel, paths):
     v.data('color', color)
 
 
-paths = load_npy(filepath(REGION, 'streamlines'))
-
-# Subset the paths.
-max_paths = 100_000
-paths = subset(paths, max_paths)
-
-paths = paths[:, ::-1, :]
-
 c = canvas(show_fps=True)
-s = c.scene(cols=1)
-p = s.panel(controller='arcball')
-plot_panel(p, paths)
+s = c.scene(cols=2 if SHOW_ALLEN else 1)
+
+if SHOW_ALLEN:
+    paths_allen = allen_streamlines()
+    p_allen = s.panel(col=0, controller='arcball')
+    plot_panel(p_allen, paths_allen)
+
+paths_ibl = ibl_streamlines()
+p_ibl = s.panel(col=1 if SHOW_ALLEN else 0, controller='arcball')
+plot_panel(p_ibl, paths_ibl)
+if SHOW_ALLEN:
+    p_allen.link_to(p_ibl)
 
 run()
