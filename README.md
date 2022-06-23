@@ -58,7 +58,9 @@ The input files are to put in `input/`, the code will generate output files in `
 
     - `regions/isocortex/streamlines.npy` (a 3D array with N 3D paths of size 100 in the 3D coordinate space of the 10um volume)
 
-6. The next steps for generating the flatmaps using the streamlines are not yet implemented.
+6. Visualize the generated streamlines in 2D with the plotting Jupyter notebook, or in 3D with `python plotting.py` (requires Datoviz)
+
+7. The next steps for generating the flatmaps using the streamlines are not yet implemented.
 
 #### Constants
 
