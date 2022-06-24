@@ -19,7 +19,7 @@ from scipy.interpolate import interp1d
 PATH_LEN = 100
 MAX_POINTS = None
 MAX_ITER = 500
-STEP = .5
+STEP = 1.0
 
 
 # ------------------------------------------------------------------------------------------------
@@ -55,10 +55,10 @@ def init_allen(region):
 
 
 def init_ibl(region):
-    """Use the voxels in the bottom surface as initial points for the streamlines."""
+    """Use the voxels in the top surface as initial points for the streamlines."""
     mask = get_mask(region)
     assert mask.ndim == 3
-    i, j, k = np.nonzero(np.isin(mask, [V_SB]))
+    i, j, k = np.nonzero(np.isin(mask, [V_ST]))
     pos = np.c_[i, j, k]
 
     # HACK: fix bug with large empty areas when plotting streamlines. For some reason,
@@ -84,17 +84,18 @@ def integrate_step(pos, step, gradient, xyz):
     for i in range(3):
         pos[:, i] = np.clip(pos[:, i], xyz[i][0], xyz[i][-1])
     g = interpn(xyz, gradient, pos)
-    return pos - step * g
+    # NOTE: - if bottom to top, + if top to bottom
+    return pos + step * g
 
 
-def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, stay_in_volume=True):
+def integrate_field(pos, step, gradient, target, max_iter=MAX_ITER):
     """Generate streamlines."""
 
     assert pos.ndim == 2
     n_paths = pos.shape[0]
     assert pos.shape == (n_paths, 3)
 
-    n, m, p = mask.shape
+    n, m, p = target.shape
     res_um = 1
     x = np.arange(0, res_um * n, res_um)
     y = np.arange(0, res_um * m, res_um)
@@ -106,18 +107,36 @@ def integrate_field(pos, step, gradient, mask, max_iter=MAX_ITER, stay_in_volume
     pos_grid = np.zeros((n_paths, 3), dtype=np.int32)
 
     # Which positions are still in the volume and need to be integrated?
-    kept = slice(None, None, None)
+    kept = np.ones(n_paths, dtype=bool)
 
-    for iter in tqdm(range(1, max_iter), desc="Integrating..."):
-        prev = out[kept, iter - 1, :]
-        out[kept, iter, :] = integrate_step(prev, step, gradient, xyz)
-        if stay_in_volume:
+    with tqdm(range(1, max_iter), desc="Integrating...") as t:
+        for iter in t:
+            # Previous position of the kept streamlines.
+            prev_pos = out[kept, iter - 1, :]
+
+            # Compute the new positions.
+            new_pos = integrate_step(prev_pos, step, gradient, xyz)
+
+            # Save the new positions in the output array.
+            out[kept, iter, :] = new_pos
+
+            # For the dropped streamlines, we copy the same values.
+            out[~kept, iter, :] = out[~kept, iter - 1, :]
+
             # Stop integrating the paths the go outside of the volume.
-            pos_grid[:] = out[:, iter, :]
-            i, j, k = pos_grid.T
-            kept = mask[i, j, k] != 0
+            # Convert the new positions to indices.
+            i, j, k = np.round(new_pos).astype(np.int32).T
+            i[:] = np.clip(i, 0, n - 1)
+            j[:] = np.clip(j, 0, m - 1)
+            k[:] = np.clip(k, 0, p - 1)
+            # i, j, k are indices of the streamlines within the volume.
+
+            # The paths that are kept are the paths that have not reached the target yet.
+            kept[kept] = target[i, j, k] == 0
+
             assert kept.shape == (n_paths,)
             n_kept = kept.sum()
+            t.set_postfix(n_kept=n_kept)
             if n_kept == 0:
                 break
 
@@ -130,7 +149,8 @@ def path_lengths(paths):
     print("Computing the path lengths...")
     streamlines = paths
     n_paths, path_len, _ = streamlines.shape
-    d = np.abs(np.diff(paths, axis=1)).max(axis=2) > 1e-3
+    d = (np.diff(paths, axis=1) ** 2).sum(axis=2) > 1e-5
+    # d = np.abs(np.diff(paths, axis=1)).max(axis=2) > 1e-3
     ln = last_nonzero(d, 1)
     assert ln.shape == (n_paths,)
     return ln
@@ -141,15 +161,20 @@ def resample_paths(paths, num=PATH_LEN):
 
     n_paths, path_len, _ = paths.shape
     xp = np.linspace(0, 1, num)
+
     lengths = path_lengths(paths)
+    # HACK: length == -1 means that the path has not reached the target yet so we resample all
+    # of it
+    lengths[lengths < 0] = path_len
+
     out = np.zeros((n_paths, num, 3), dtype=np.float32)
     for i in tqdm(range(n_paths), desc="Resampling..."):
         n = lengths[i]
         if n >= 2:
             lin = interp1d(np.linspace(0, 1, n), paths[i, :n, :], axis=0)
-            out[i, :num, :] = lin(xp)
+            out[i, :, :] = lin(xp)
         else:
-            out[i, :num, :] = paths[i, 0, :]
+            out[i, :, :] = paths[i, :num, :]
     return out
 
 
@@ -174,9 +199,12 @@ def compute_streamlines(region, init_points=None):
     assert gradient.ndim == 4
     assert gradient.shape[3] == 3
 
+    # Stop the integration when points reach the bottom surface.
+    target = np.isin(mask, (V_SB,))
+
     # Integrate the gradient field from those positions.
     paths = integrate_field(
-        init_points, STEP, gradient, np.isin(mask, (V_SB, V_SE, V_VOLUME)), max_iter=MAX_ITER)
+        init_points, STEP, gradient, target, max_iter=MAX_ITER)
 
     # Resample the paths.
     streamlines = resample_paths(paths, num=PATH_LEN)
