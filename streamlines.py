@@ -8,6 +8,7 @@
 from common import *
 from gradient import *
 
+from joblib import Parallel, delayed
 from scipy.interpolate import interpn
 from scipy.interpolate import interp1d
 
@@ -17,8 +18,8 @@ from scipy.interpolate import interp1d
 # ------------------------------------------------------------------------------------------------
 
 PATH_LEN = 100
-MAX_POINTS = None
-MAX_ITER = 500
+MAX_POINTS = 10_000
+MAX_ITER = 50
 STEP = 1.0
 
 
@@ -178,6 +179,19 @@ def resample_paths(paths, num=PATH_LEN):
     return out
 
 
+def _make_streamlines(points, idx, gradient, target, out):
+    # Integrate the gradient field from those positions.
+    paths = integrate_field(
+        points[idx], STEP, gradient, target, max_iter=MAX_ITER)
+
+    # Resample the paths.
+    streamlines = resample_paths(paths, num=PATH_LEN)
+
+    out[idx, ...] = streamlines
+
+    # return streamlines
+
+
 def compute_streamlines(region, init_points=None):
     """Compute (or load from the cache) the streamlines."""
 
@@ -185,14 +199,21 @@ def compute_streamlines(region, init_points=None):
     mask = get_mask(region)
     assert mask.ndim == 3
 
-    # Download or load the mesh (initial positions of the streamlines).
+    # Starting points of the streamlines.
     if init_points is None:
-        init_points = init_ibl(region)
+        init_path = filepath(region, 'init_points')
+        # Get or compute the initial points, persisting them on disk.
+        if not init_path.exists():
+            save_npy(init_path, init_ibl(region))
+        assert init_path.exists()
+        # Always load them as memmap.
+        init_points = load_npy(init_path)
     assert init_points.ndim == 2
     assert init_points.shape[1] == 3
     n = len(init_points)
     init_points = subset(init_points, MAX_POINTS)
-    print(f"Starting computing {len(init_points)} (out of {n}) streamlines...")
+    n_paths = len(init_points)
+    print(f"Starting computing {n_paths} (out of {n}) streamlines...")
 
     # Compute or load the gradient.
     gradient = get_gradient(region)
@@ -202,15 +223,16 @@ def compute_streamlines(region, init_points=None):
     # Stop the integration when points reach the bottom surface.
     target = np.isin(mask, (V_SB,))
 
-    # Integrate the gradient field from those positions.
-    paths = integrate_field(
-        init_points, STEP, gradient, target, max_iter=MAX_ITER)
+    # Memmap the output npy file in writing mode.
+    out = np.lib.format.open_memmap(
+        filepath(region, 'streamlines'), dtype=np.float32, shape=(n_paths, PATH_LEN, 3), mode='w+')
 
-    # Resample the paths.
-    streamlines = resample_paths(paths, num=PATH_LEN)
+    # Make the streamlines and write them directly to disk.
+    streamlines = _make_streamlines(
+        init_points, slice(None, None, None), gradient, target, out)
 
     # Save the streamlines.
-    save_npy(filepath(region, 'streamlines'), streamlines)
+    # save_npy(filepath(region, 'streamlines'), streamlines)
 
 
 # ------------------------------------------------------------------------------------------------
