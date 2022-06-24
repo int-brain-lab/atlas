@@ -60,7 +60,15 @@ def init_ibl(region):
     assert mask.ndim == 3
     i, j, k = np.nonzero(np.isin(mask, [V_SB]))
     pos = np.c_[i, j, k]
-    return pos
+
+    # HACK: fix bug with large empty areas when plotting streamlines. For some reason,
+    # taking a subset of the positions by slicing pos[::k, :] results in large empty areas
+    # in one of the hemispheres for some values of k (even values). We fix this systematic bias by
+    # shuffling the initial positions.
+    np.random.seed(0)
+    perm = np.random.permutation(pos.shape[0])
+
+    return pos[perm, :]
 
 
 # ------------------------------------------------------------------------------------------------
