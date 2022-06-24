@@ -15,7 +15,10 @@ MAX_PATHS = 100_000
 def ibl_streamlines():
     paths = load_npy(filepath(REGION, 'streamlines'))
     paths = subset(paths, MAX_PATHS)
+
+    # NOTE: the following line should be decommented when streamlines go from bottom to top
     # paths = paths[:, ::-1, :]
+
     return paths
 
 
@@ -34,10 +37,17 @@ def plot_panel(panel, paths):
     color = np.tile(np.linspace(0, 1, l), n)
     color = colormap(color, vmin=0, vmax=1, cmap='viridis', alpha=1)
 
+    # Plot lines
     v = panel.visual('line_strip', depth_test=True)
     v.data('pos', paths.reshape((-1, 3)))
     v.data('length', length)
     v.data('color', color)
+
+    # # Plot points
+    # v = panel.visual('point', depth_test=True)
+    # v.data('pos', paths.reshape((-1, 3)))
+    # v.data('ms', np.array([1.0]))
+    # v.data('color', color)
 
 
 c = canvas(show_fps=True)
