@@ -18,8 +18,9 @@ from scipy.interpolate import interp1d
 # ------------------------------------------------------------------------------------------------
 
 PATH_LEN = 100
-MAX_POINTS = 10_000
-MAX_ITER = 50
+MAX_POINTS = None
+PARALLEL_STEP = 10_000  # how many streamlines per compute item
+MAX_ITER = 2000
 STEP = 1.0
 
 
@@ -44,6 +45,23 @@ def subset(paths, max_paths=None):
     n = paths.shape[0]
     k = max(1, int(math.floor(float(n) / float(max_paths))))
     return np.array(paths[::k, ...])
+
+
+class ProgressParallel(Parallel):
+    def __init__(self, use_tqdm=True, total=None, *args, **kwargs):
+        self._use_tqdm = use_tqdm
+        self._total = total
+        super().__init__(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        with tqdm(disable=not self._use_tqdm, total=self._total) as self._pbar:
+            return Parallel.__call__(self, *args, **kwargs)
+
+    def print_progress(self):
+        if self._total is None:
+            self._pbar.total = self.n_dispatched_tasks
+        self._pbar.n = self.n_completed_tasks
+        self._pbar.refresh()
 
 
 # ------------------------------------------------------------------------------------------------
@@ -105,41 +123,40 @@ def integrate_field(pos, step, gradient, target, max_iter=MAX_ITER):
 
     out = np.zeros((n_paths, max_iter, 3), dtype=np.float32)
     out[:, 0, :] = pos
-    pos_grid = np.zeros((n_paths, 3), dtype=np.int32)
 
     # Which positions are still in the volume and need to be integrated?
     kept = np.ones(n_paths, dtype=bool)
 
-    with tqdm(range(1, max_iter), desc="Integrating...") as t:
-        for iter in t:
-            # Previous position of the kept streamlines.
-            prev_pos = out[kept, iter - 1, :]
+    # with tqdm(range(1, max_iter), desc="Integrating...") as t:
+    for iter in range(1, max_iter):
+        # Previous position of the kept streamlines.
+        prev_pos = out[kept, iter - 1, :]
 
-            # Compute the new positions.
-            new_pos = integrate_step(prev_pos, step, gradient, xyz)
+        # Compute the new positions.
+        new_pos = integrate_step(prev_pos, step, gradient, xyz)
 
-            # Save the new positions in the output array.
-            out[kept, iter, :] = new_pos
+        # Save the new positions in the output array.
+        out[kept, iter, :] = new_pos
 
-            # For the dropped streamlines, we copy the same values.
-            out[~kept, iter, :] = out[~kept, iter - 1, :]
+        # For the dropped streamlines, we copy the same values.
+        out[~kept, iter, :] = out[~kept, iter - 1, :]
 
-            # Stop integrating the paths the go outside of the volume.
-            # Convert the new positions to indices.
-            i, j, k = np.round(new_pos).astype(np.int32).T
-            i[:] = np.clip(i, 0, n - 1)
-            j[:] = np.clip(j, 0, m - 1)
-            k[:] = np.clip(k, 0, p - 1)
-            # i, j, k are indices of the streamlines within the volume.
+        # Stop integrating the paths the go outside of the volume.
+        # Convert the new positions to indices.
+        i, j, k = np.round(new_pos).astype(np.int32).T
+        i[:] = np.clip(i, 0, n - 1)
+        j[:] = np.clip(j, 0, m - 1)
+        k[:] = np.clip(k, 0, p - 1)
+        # i, j, k are indices of the streamlines within the volume.
 
-            # The paths that are kept are the paths that have not reached the target yet.
-            kept[kept] = target[i, j, k] == 0
+        # The paths that are kept are the paths that have not reached the target yet.
+        kept[kept] = target[i, j, k] == 0
 
-            assert kept.shape == (n_paths,)
-            n_kept = kept.sum()
-            t.set_postfix(n_kept=n_kept)
-            if n_kept == 0:
-                break
+        assert kept.shape == (n_paths,)
+        n_kept = kept.sum()
+        # t.set_postfix(n_kept=n_kept)
+        if n_kept == 0:
+            break
 
     return out
 
@@ -147,7 +164,7 @@ def integrate_field(pos, step, gradient, target, max_iter=MAX_ITER):
 def path_lengths(paths):
     """Compute the lengths of the streamlines."""
 
-    print("Computing the path lengths...")
+    # print("Computing the path lengths...")
     streamlines = paths
     n_paths, path_len, _ = streamlines.shape
     d = (np.diff(paths, axis=1) ** 2).sum(axis=2) > 1e-5
@@ -169,7 +186,8 @@ def resample_paths(paths, num=PATH_LEN):
     lengths[lengths < 0] = path_len
 
     out = np.zeros((n_paths, num, 3), dtype=np.float32)
-    for i in tqdm(range(n_paths), desc="Resampling..."):
+    # for i in tqdm(range(n_paths), desc="Resampling..."):
+    for i in range(n_paths):
         n = lengths[i]
         if n >= 2:
             lin = interp1d(np.linspace(0, 1, n), paths[i, :n, :], axis=0)
@@ -180,6 +198,7 @@ def resample_paths(paths, num=PATH_LEN):
 
 
 def _make_streamlines(points, idx, gradient, target, out):
+
     # Integrate the gradient field from those positions.
     paths = integrate_field(
         points[idx], STEP, gradient, target, max_iter=MAX_ITER)
@@ -188,7 +207,6 @@ def _make_streamlines(points, idx, gradient, target, out):
     streamlines = resample_paths(paths, num=PATH_LEN)
 
     out[idx, ...] = streamlines
-
     # return streamlines
 
 
@@ -213,7 +231,7 @@ def compute_streamlines(region, init_points=None):
     n = len(init_points)
     init_points = subset(init_points, MAX_POINTS)
     n_paths = len(init_points)
-    print(f"Starting computing {n_paths} (out of {n}) streamlines...")
+    # print(f"Starting computing {n_paths} (out of {n}) streamlines...")
 
     # Compute or load the gradient.
     gradient = get_gradient(region)
@@ -228,9 +246,15 @@ def compute_streamlines(region, init_points=None):
         filepath(region, 'streamlines'), dtype=np.float32, shape=(n_paths, PATH_LEN, 3), mode='w+')
 
     # Make the streamlines and write them directly to disk.
-    streamlines = _make_streamlines(
-        init_points, slice(None, None, None), gradient, target, out)
+    w = PARALLEL_STEP
+    slices = [slice(start, start + w) for start in range(0, n_paths - w, w)]
+    ProgressParallel(n_jobs=-2, total=len(slices))(
+        delayed(_make_streamlines)(init_points, sl, gradient, target, out)
+        for sl in slices)
 
+    # Serial execution:
+    # streamlines = _make_streamlines(
+    #     init_points, slice(None, None, None), gradient, target, out)
     # Save the streamlines.
     # save_npy(filepath(region, 'streamlines'), streamlines)
 
