@@ -1,5 +1,8 @@
 """Plotting streamlines in 3D with Datoviz."""
 
+from timeit import default_timer
+from math import cos, sin, pi
+
 import numpy as np
 
 from common import *
@@ -8,7 +11,7 @@ from streamlines import *
 from datoviz import canvas, run, colormap
 
 
-SHOW_ALLEN = True
+SHOW_ALLEN = False
 MAX_PATHS = 100_000
 
 
@@ -39,6 +42,7 @@ def plot_panel(panel, paths):
 
     # Plot lines
     v = panel.visual('line_strip', depth_test=True)
+    paths[:, :, 1] *= -1
     v.data('pos', paths.reshape((-1, 3)))
     v.data('length', length)
     v.data('color', color)
@@ -50,7 +54,8 @@ def plot_panel(panel, paths):
     # v.data('color', color)
 
 
-c = canvas(show_fps=True)
+c = canvas(width=1920+20, height=1080+20,
+           clear_color=(0, 0, 0, 0), show_fps=False)
 s = c.scene(cols=2 if SHOW_ALLEN else 1)
 
 if SHOW_ALLEN:
@@ -63,5 +68,19 @@ p_ibl = s.panel(col=1 if SHOW_ALLEN else 0, controller='arcball')
 plot_panel(p_ibl, paths_ibl)
 if SHOW_ALLEN:
     p_allen.link_to(p_ibl)
+
+# We define an event callback to implement mouse picking
+
+t0 = default_timer()
+
+
+@c.connect
+def on_frame(ev):
+    t = default_timer() - t0
+    a = -2 * pi * t / 8
+    # x = 2 * cos(a)
+    # y = 2 * sin(a)
+    p_ibl.arcball_rotate(0, 1, 0, a)
+
 
 run()
